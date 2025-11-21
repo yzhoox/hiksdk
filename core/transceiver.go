@@ -1,8 +1,9 @@
-package pkg
+package core
 
 import (
 	"fmt"
 	"io"
+	"log"
 )
 
 // ChanReader 将 channel 转换为 io.Reader
@@ -18,30 +19,80 @@ func (r ChanReader) Read(buf []byte) (n int, err error) {
 }
 
 // Receiver 数据接收器，用于接收设备发送的视频/音频数据
+// 支持PS流的接收、缓冲和同步处理
 type Receiver struct {
-	PSMouth  chan []byte // PS 流数据通道
-	psBuffer []byte      // PS 数据缓冲区
+	PSMouth  chan []byte // PS 流数据通道（对外接口）
+	psBuffer []byte      // PS 数据缓冲区（内部使用）
+	running  bool        // 运行状态标志
 }
 
 // Start 启动接收器
+// 初始化PS流数据通道，准备接收数据
+// 返回值：
+//   - error: 错误信息，成功时为nil
 func (r *Receiver) Start() error {
-	r.PSMouth = make(chan []byte, 500) // 创建 PS 数据通道
+	if r.running {
+		return fmt.Errorf("接收器已经在运行")
+	}
+
+	// 创建 PS 数据通道，缓冲区大小500
+	// 如果数据产生速度过快，可能需要增大缓冲区
+	r.PSMouth = make(chan []byte, 500)
+	r.psBuffer = make([]byte, 0, 1024*1024) // 预分配1MB缓冲区
+	r.running = true
+
+	log.Println("✓ 数据接收器已启动")
 	return nil
 }
 
 // Stop 停止接收器
+// 关闭数据通道，清理资源
 func (r *Receiver) Stop() {
+	if !r.running {
+		return
+	}
+
 	if r.PSMouth != nil {
 		close(r.PSMouth)
+		r.PSMouth = nil
 	}
+
+	// 清空缓冲区
+	r.psBuffer = nil
+	r.running = false
+
+	log.Println("✓ 数据接收器已停止")
 }
 
 // ReadPSData 读取 PS 流数据
+// 从设备接收原始数据，提取PS包并发送到处理通道
+// 参数：
+//   - data: 从设备接收的原始数据
+//
+// 返回值：
+//   - error: 处理错误信息
 func (r *Receiver) ReadPSData(data []byte) error {
+	if !r.running {
+		return fmt.Errorf("接收器未运行")
+	}
+
+	if len(data) == 0 {
+		return nil // 空数据不是错误
+	}
+
 	// 将数据添加到缓冲区
 	r.psBuffer = append(r.psBuffer, data...)
 
+	// 防止缓冲区无限增长
+	const maxBufferSize = 10 * 1024 * 1024 // 10MB
+	if len(r.psBuffer) > maxBufferSize {
+		log.Printf("警告: PS缓冲区过大(%d bytes)，清空缓冲区", len(r.psBuffer))
+		r.psBuffer = r.psBuffer[:0] // 清空但保留容量
+		return fmt.Errorf("PS缓冲区溢出")
+	}
+
 	// 处理缓冲区中的完整 PS 包
+	packetsProcessed := 0
 	for {
 		syncedData, remaining := r.extractSynchronizedPSData(r.psBuffer)
 		if syncedData == nil {
@@ -54,9 +105,10 @@ func (r *Receiver) ReadPSData(data []byte) error {
 		select {
 		case r.PSMouth <- syncedData:
 			// 成功发送数据到PS处理通道
+			packetsProcessed++
 		default:
 			// 通道满了，跳过这个数据包
-			fmt.Printf("PS通道满了，跳过数据包，当前缓冲区大小: %d/%d\n", len(r.PSMouth), cap(r.PSMouth))
+			log.Printf("警告: PS通道满（%d/%d），跳过数据包", len(r.PSMouth), cap(r.PSMouth))
 		}
 
 		// 更新缓冲区为剩余数据

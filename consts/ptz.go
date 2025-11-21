@@ -1,4 +1,4 @@
-package pkg
+package consts
 
 // PTZ 命令常量定义
 // 这些常量用于 PTZ 控制函数的 dwPTZCommand 参数

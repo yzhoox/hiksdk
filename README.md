@@ -1,4 +1,4 @@
-# HikSDK - 海康威视 Go SDK
+﻿# HikSDK - 海康威视 Go SDK
 
 [![Go Version](https://img.shields.io/badge/Go-%3E%3D%201.25-blue)](https://golang.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -20,14 +20,22 @@ HikSDK 是海康威视官方 C SDK 的 Go 语言封装，通过 CGO 调用底层
 
 ## 🌍 跨平台兼容性
 
-本项目已完美适配 **Windows** 和 **Linux** 平台：
+本项目已完美适配 **Windows** 和 **Linux** 平台，经过深度优化，确保最佳性能和稳定性：
 
-- ✅ **Windows**：使用 MinGW-w64 编译，支持 x64 架构
-- ✅ **Linux**：使用 GCC 编译，支持 x64 架构
+### 平台支持
+- ✅ **Windows x64**：使用 MinGW-w64 编译，支持 Windows 10/11
+- ✅ **Linux x64**：使用 GCC 编译，支持主流发行版（Ubuntu、Debian、CentOS、Arch等）
 - ✅ **自动平台检测**：通过 CGO 构建标签自动选择正确的库和类型定义
-- ✅ **类型兼容性**：已处理所有 Windows/Linux 类型差异（如 HWND、句柄类型等）
+- ✅ **类型兼容性**：完整处理所有 Windows/Linux 类型差异（HWND、句柄类型、调用约定等）
 
-> 💡 **技术说明**：本项目使用 CGO 调用海康 C SDK，已针对不同平台的类型差异进行了适配处理，确保代码在 Windows 和 Linux 上都能正常编译和运行。
+### 技术特性
+- 🔧 **智能链接顺序**：优化了库链接顺序，确保依赖关系正确
+- 🧵 **线程安全**：使用 `sync.Once` 确保 SDK 初始化的线程安全
+- 📦 **资源管理**：使用 `cgo.Handle` 正确管理 Go 与 C 之间的资源传递
+- 🎯 **零拷贝优化**：在回调函数中使用零拷贝技术提高性能
+- 🛡️ **安全边界检查**：所有 C 字符串操作都有边界检查，防止缓冲区溢出
+
+> 💡 **技术说明**：本项目使用 CGO 调用海康 C SDK，采用了多项跨平台最佳实践，确保代码在不同平台上的一致性和可靠性。
 
 ## 📥 安装配置
 
@@ -185,9 +193,9 @@ fi
 git clone https://github.com/samsaralc/hiksdk.git
 cd hiksdk
 
-# 修改 examples/basic_usage.go 中的 IP、用户名、密码
+# 修改 examples/01_login_methods.go 中的 IP、用户名、密码
 # 然后运行
-go run examples/basic_usage.go
+go run examples/01_login_methods.go
 ```
 
 **如果能看到输出，配置成功！** 🎉
@@ -214,32 +222,28 @@ go run examples/basic_usage.go
 
 ### 1. 基础使用
 
-#### 最简示例
+#### 最简示例（v1.4.0+ 推荐方式）
 
 ```go
 package main
 
 import (
 	"fmt"
-	"github.com/samsaralc/hiksdk/pkg"
+	"github.com/samsaralc/hiksdk/core"
 )
 
 func main() {
-	// 初始化 SDK（必须）
-	pkg.InitHikSDK()
-	defer pkg.HKExit()
-
-	// 创建设备实例
-	deviceInfo := pkg.DeviceInfo{
+	// 直接创建设备实例（SDK会自动初始化，无需手动调用）
+	deviceInfo := core.DeviceInfo{
 		IP:       "192.168.1.64",
 		Port:     8000,
 		UserName: "admin",
 		Password: "password",
 	}
-	dev := pkg.NewHKDevice(deviceInfo)
+	dev := core.NewHKDevice(deviceInfo) // ✨ 自动初始化SDK
 
-	// 登录设备
-	loginId, err := dev.Login()
+	// 登录设备（推荐使用V40版本）
+	loginId, err := dev.LoginV40()
 	if err != nil {
 		fmt.Printf("登录失败: %v\n", err)
 		return
@@ -248,11 +252,20 @@ func main() {
 	fmt.Printf("登录成功，ID: %d\n", loginId)
 
 	// 获取设备信息
-	info, _ := dev.GetDeviceInfo() // 推荐使用 GetDeviceInfo
+	info, _ := dev.GetDeviceInfo()
 	fmt.Printf("设备名称: %s\n", info.DeviceName)
 	fmt.Printf("通道数量: %d\n", info.ByChanNum)
+	
+	// 程序结束时清理SDK（可选）
+	defer core.Cleanup()
 }
 ```
+
+> ✨ **新特性说明（v1.4.0+）**:
+> - SDK会在第一次调用`NewHKDevice()`时自动初始化
+> - 使用`sync.Once`确保只初始化一次，线程安全
+> - 无需手动调用`InitHikSDK()`
+> - 向后兼容，旧代码仍然可以工作
 
 #### 完整示例（带错误处理）
 
@@ -267,11 +280,11 @@ import (
 
 func main() {
 	// 1. 初始化 SDK
-	pkg.InitHikSDK()
-	defer pkg.HKExit()
+	core.InitHikSDK()
+	defer core.Cleanup()
 
 	// 2. 配置设备
-	dev := pkg.NewHKDevice(pkg.DeviceInfo{
+	dev := core.NewHKDevice(core.DeviceInfo{
 		IP:       "192.168.1.64",
 		Port:     8000,
 		UserName: "admin",
@@ -279,7 +292,7 @@ func main() {
 	})
 
 	// 3. 登录
-	loginId, err := dev.Login()
+	loginId, err := dev.LoginV30()
 	if err != nil {
 		fmt.Printf("登录失败: %v\n", err)
 		os.Exit(1)
@@ -315,86 +328,86 @@ func main() {
 ```go
 import (
 	"time"
-	"github.com/samsaralc/hiksdk/pkg"
+	"github.com/samsaralc/hiksdk/core"
 )
 
 // SDK 已经提供了所有 PTZ 命令常量，直接使用
-// pkg.PAN_RIGHT, pkg.TILT_UP, pkg.ZOOM_IN 等
+// core.PAN_RIGHT, core.TILT_UP, core.ZOOM_IN 等
 
 // 云台右转（推荐使用 PTZControlWithSpeed_Other）
 success, err := dev.PTZControlWithSpeed_Other(
 	1,              // 通道号
-	pkg.PAN_RIGHT,  // PTZ命令：右转
+	core.PAN_RIGHT,  // PTZ命令：右转
 	0,              // dwStop=0 开始动作
 	4,              // 速度：0-7
 )
 if err == nil && success {
 	time.Sleep(2 * time.Second)
 	// 停止（dwStop=1）
-	dev.PTZControlWithSpeed_Other(1, pkg.PAN_RIGHT, 1, 4)
+	dev.PTZControlWithSpeed_Other(1, core.PAN_RIGHT, 1, 4)
 }
 
 // 变焦放大（不需要速度参数）
-dev.PTZControl_Other(1, pkg.ZOOM_IN, 0)
+dev.PTZControl_Other(1, core.ZOOM_IN, 0)
 time.Sleep(1 * time.Second)
-dev.PTZControl_Other(1, pkg.ZOOM_IN, 1) // 停止
+dev.PTZControl_Other(1, core.ZOOM_IN, 1) // 停止
 ```
 
 #### PTZ 控制完整示例
 
 ```go
-import "github.com/samsaralc/hiksdk/pkg"
+import "github.com/samsaralc/hiksdk/core"
 
 // 云台移动示例
-func ptzMoveExample(dev pkg.Device) {
+func ptzMoveExample(dev *core.HKDevice) {
 	channelId := 1
 	
 	// 右转 2 秒
-	dev.PTZControlWithSpeed_Other(channelId, pkg.PAN_RIGHT, pkg.PTZ_START, 4)
+	dev.PTZControlWithSpeed_Other(channelId, core.PAN_RIGHT, core.PTZ_START, 4)
 	time.Sleep(2 * time.Second)
-	dev.PTZControlWithSpeed_Other(channelId, pkg.PAN_RIGHT, pkg.PTZ_STOP, 4)
+	dev.PTZControlWithSpeed_Other(channelId, core.PAN_RIGHT, core.PTZ_STOP, 4)
 	
 	// 上仰 2 秒
-	dev.PTZControlWithSpeed_Other(channelId, pkg.TILT_UP, pkg.PTZ_START, 4)
+	dev.PTZControlWithSpeed_Other(channelId, core.TILT_UP, core.PTZ_START, 4)
 	time.Sleep(2 * time.Second)
-	dev.PTZControlWithSpeed_Other(channelId, pkg.TILT_UP, pkg.PTZ_STOP, 4)
+	dev.PTZControlWithSpeed_Other(channelId, core.TILT_UP, core.PTZ_STOP, 4)
 	
 	// 右上斜向移动
-	dev.PTZControlWithSpeed_Other(channelId, pkg.UP_RIGHT, pkg.PTZ_START, 3)
+	dev.PTZControlWithSpeed_Other(channelId, core.UP_RIGHT, core.PTZ_START, 3)
 	time.Sleep(2 * time.Second)
-	dev.PTZControlWithSpeed_Other(channelId, pkg.UP_RIGHT, pkg.PTZ_STOP, 3)
+	dev.PTZControlWithSpeed_Other(channelId, core.UP_RIGHT, core.PTZ_STOP, 3)
 }
 
 // 变焦和焦点控制示例
-func zoomFocusExample(dev pkg.Device) {
+func zoomFocusExample(dev *core.HKDevice) {
 	channelId := 1
 	
 	// 焦距放大（拉近）
-	dev.PTZControl_Other(channelId, pkg.ZOOM_IN, 0)
+	dev.PTZControl_Other(channelId, core.ZOOM_IN, 0)
 	time.Sleep(1 * time.Second)
-	dev.PTZControl_Other(channelId, pkg.ZOOM_IN, 1)
+	dev.PTZControl_Other(channelId, core.ZOOM_IN, 1)
 	
 	// 焦点前调（聚焦）
-	dev.PTZControl_Other(channelId, pkg.FOCUS_NEAR, 0)
+	dev.PTZControl_Other(channelId, core.FOCUS_NEAR, 0)
 	time.Sleep(1 * time.Second)
-	dev.PTZControl_Other(channelId, pkg.FOCUS_NEAR, 1)
+	dev.PTZControl_Other(channelId, core.FOCUS_NEAR, 1)
 }
 
 // 预置点使用示例
-func presetExample(dev pkg.Device) {
+func presetExample(dev *core.HKDevice) {
 	channelId := 1
 	presetId := 1
 	
 	// 设置预置点1
-	dev.PTZControl_Other(channelId, pkg.SET_PRESET, presetId)
+	dev.PTZControl_Other(channelId, core.SET_PRESET, presetId)
 	
 	// 移动云台到其他位置
-	dev.PTZControlWithSpeed_Other(channelId, pkg.PAN_RIGHT, 0, 4)
+	dev.PTZControlWithSpeed_Other(channelId, core.PAN_RIGHT, 0, 4)
 	time.Sleep(3 * time.Second)
-	dev.PTZControlWithSpeed_Other(channelId, pkg.PAN_RIGHT, 1, 4)
+	dev.PTZControlWithSpeed_Other(channelId, core.PAN_RIGHT, 1, 4)
 	
 	// 转到预置点1
-	dev.PTZControl_Other(channelId, pkg.GOTO_PRESET, presetId)
+	dev.PTZControl_Other(channelId, core.GOTO_PRESET, presetId)
 	time.Sleep(2 * time.Second) // 等待云台移动到位
 }
 ```
@@ -403,7 +416,7 @@ func presetExample(dev pkg.Device) {
 
 ```go
 // 创建接收器
-receiver := &pkg.Receiver{}
+receiver := &core.Receiver{}
 receiver.Start()
 
 // 启动实时预览
@@ -447,25 +460,35 @@ defer dev.StopListenAlarmMsg()
 
 ```
 hiksdk/
-├── pkg/                    # SDK 核心包
-│   ├── HKDevice.go        # 设备管理实现（CGO调用）
-│   ├── device.go          # 设备接口定义
-│   ├── ptz_commands.go    # PTZ 命令常量（63个命令）
-│   ├── audio.go           # 音频处理
-│   ├── video.go           # 视频处理
+├── core/                   # SDK 核心包
+│   ├── device.go          # 设备管理和初始化
+│   ├── login.go           # 登录认证和动态IP解析
+│   ├── config.go          # 设备配置管理
+│   ├── video.go           # 视频预览功能
+│   ├── ptz.go             # PTZ云台控制
+│   ├── ptz_commands.go    # PTZ命令常量（63个命令）
+│   ├── alarm.go           # 报警监听功能
+│   ├── errors.go          # 错误处理
+│   ├── helpers.go         # 工具函数
 │   ├── transceiver.go     # PS流数据收发器
-│   ├── device_test.go     # 设备管理测试
-│   └── ptz_test.go        # PTZ 控制测试
+│   └── hiksdk_wrapper.h   # CGO头文件
 ├── examples/               # 可运行的示例代码
-│   ├── basic_usage.go     # 基础使用示例
-│   ├── ptz_control.go     # PTZ 控制完整示例
-│   ├── video_preview.go   # 视频预览示例
-│   └── alarm_listen.go    # 报警监听示例
+│   ├── 01_login_methods.go    # 登录方式示例
+│   ├── 02_device_info.go      # 设备信息示例
+│   ├── 03_ptz_control.go      # PTZ控制示例
+│   ├── 04_video_preview.go    # 视频预览示例
+│   ├── 05_alarm_listen.go     # 报警监听示例
+│   └── README.md              # 示例说明
 ├── docs/                   # 文档目录
-│   ├── PROJECT_STRUCTURE.md   # 项目结构详解
-│   └── HANDLE_EXPLANATION.md  # 句柄概念说明
+│   ├── 用户.md            # 官方接口文档
+│   ├── 预置点.md          # 预置点说明
+│   ├── 错误代码及说明.md  # 错误代码参考
+│   └── LOGIN_MODES.md     # 登录方式说明
 ├── include/                # C 头文件
-│   └── HCNetSDK.h         # 海康SDK头文件
+│   ├── HCNetSDK.h         # 海康SDK主头文件
+│   ├── DataType.h         # 数据类型定义
+│   ├── DecodeCardSdk.h    # 解码卡SDK
+│   └── plaympeg4.h        # MPEG4播放
 ├── lib/                    # 动态链接库
 │   ├── Windows/           # Windows平台DLL
 │   └── Linux/             # Linux平台SO
@@ -483,7 +506,7 @@ hiksdk/
 
 | 句柄类型 | 中文名 | 获取方式 | 作用域 | 用途 |
 |---------|--------|---------|--------|------|
-| **loginId** | 登录句柄 | `Login()` | 设备级别 | 设备配置、PTZ控制（配合通道号） |
+| **loginId** | 登录句柄 | `LoginV30()`/`LoginV40()` | 设备级别 | 设备配置、PTZ控制（配合通道号） |
 | **lRealHandle** | 预览句柄 | `RealPlay_V40()` | 视频流级别 | 视频流控制、PTZ控制（当前预览通道） |
 
 **详细说明：** 查看 [docs/HANDLE_EXPLANATION.md](docs/HANDLE_EXPLANATION.md)
@@ -495,16 +518,20 @@ hiksdk/
 #### 1. 初始化与清理
 
 ```go
-// 初始化 SDK（程序启动时必须调用）
-pkg.InitHikSDK()
-
-// 释放 SDK 资源（程序退出前必须调用）
-pkg.HKExit()
-
-// 建议使用 defer 确保资源释放
+// v1.4.0+ 新版本（推荐）：自动初始化
 func main() {
-	pkg.InitHikSDK()
-	defer pkg.HKExit()
+	// 直接创建设备，SDK自动初始化
+	dev := core.NewHKDevice(deviceInfo)
+	
+	// 可选：程序退出时清理资源
+	defer core.Cleanup()
+	// ... 你的代码
+}
+
+// 兼容旧版本：手动初始化（仍然支持）
+func main() {
+	core.InitHikSDK()  // 手动初始化
+	defer core.Cleanup() // 清理资源
 	// ... 你的代码
 }
 ```
@@ -513,23 +540,23 @@ func main() {
 
 ```go
 // 创建设备实例
-deviceInfo := pkg.DeviceInfo{
+deviceInfo := core.DeviceInfo{
 	IP:       "192.168.1.64",  // 设备IP
 	Port:     8000,             // 端口（默认8000）
 	UserName: "admin",          // 用户名
 	Password: "password",       // 密码
 }
-dev := pkg.NewHKDevice(deviceInfo)
+dev := core.NewHKDevice(deviceInfo)
 
-// 登录方式1：使用 Login_V30（常用）
-loginId, err := dev.Login()
+// 登录方式1：使用 Login_V30（兼容旧设备）
+loginId, err := dev.LoginV30()
 if err != nil {
 	// 处理登录失败
 	fmt.Printf("登录失败: %v\n", err)
 }
 
 // 登录方式2：使用 Login_V40（推荐，性能更好）
-loginId, err := dev.LoginV4()
+loginId, err := dev.LoginV40()
 
 // 登出（释放连接）
 err := dev.Logout()
@@ -539,9 +566,7 @@ err := dev.Logout()
 
 ```go
 // 获取设备详细信息
-info, err := dev.GetDeviceInfo() // 推荐使用（拼写正确）
-// 或
-info, err := dev.GetDeiceInfo()  // 旧方法，保持兼容
+info, err := dev.GetDeviceInfo()
 
 // 设备信息字段
 info.DeviceName  // 设备名称
@@ -576,76 +601,76 @@ channels, err := dev.GetChannelName()
 // PTZControlWithSpeed_Other - 最灵活，不需要预览（推荐✅）
 success, err := dev.PTZControlWithSpeed_Other(
 	channelId,        // 通道号（1开始）
-	pkg.PAN_RIGHT,    // PTZ命令
-	pkg.PTZ_START,    // 0=开始，1=停止
+	core.PAN_RIGHT,    // PTZ命令
+	core.PTZ_START,    // 0=开始，1=停止
 	4,                // 速度：0-7
 )
 
 // PTZControl_Other - 无速度参数
 success, err := dev.PTZControl_Other(
 	channelId,        // 通道号
-	pkg.ZOOM_IN,      // PTZ命令
-	pkg.PTZ_START,    // 0=开始，1=停止
+	core.ZOOM_IN,      // PTZ命令
+	core.PTZ_START,    // 0=开始，1=停止
 )
 
 // PTZControlWithSpeed - 需要先启动预览
-receiver := &pkg.Receiver{}
+receiver := &core.Receiver{}
 receiver.Start()
 lRealHandle, _ := dev.RealPlay_V40(1, receiver)
 // 现在可以使用（控制当前预览的通道）
-success, err := dev.PTZControlWithSpeed(pkg.PAN_RIGHT, pkg.PTZ_START, 4)
+success, err := dev.PTZControlWithSpeed(core.PAN_RIGHT, core.PTZ_START, 4)
 ```
 
 #### 2. PTZ 命令常量（已内置 63 个命令）
 
 ```go
 // ========== 基本移动（需要速度） ==========
-pkg.TILT_UP    = 21  // 云台上仰
-pkg.TILT_DOWN  = 22  // 云台下俯
-pkg.PAN_LEFT   = 23  // 云台左转
-pkg.PAN_RIGHT  = 24  // 云台右转
+core.TILT_UP    = 21  // 云台上仰
+core.TILT_DOWN  = 22  // 云台下俯
+core.PAN_LEFT   = 23  // 云台左转
+core.PAN_RIGHT  = 24  // 云台右转
 
 // ========== 组合移动（需要速度） ==========
-pkg.UP_LEFT    = 25  // 上仰+左转
-pkg.UP_RIGHT   = 26  // 上仰+右转
-pkg.DOWN_LEFT  = 27  // 下俯+左转
-pkg.DOWN_RIGHT = 28  // 下俯+右转
+core.UP_LEFT    = 25  // 上仰+左转
+core.UP_RIGHT   = 26  // 上仰+右转
+core.DOWN_LEFT  = 27  // 下俯+左转
+core.DOWN_RIGHT = 28  // 下俯+右转
 
 // ========== 焦距控制 ==========
-pkg.ZOOM_IN    = 11  // 焦距变大（拉近）
-pkg.ZOOM_OUT   = 12  // 焦距变小（拉远）
+core.ZOOM_IN    = 11  // 焦距变大（拉近）
+core.ZOOM_OUT   = 12  // 焦距变小（拉远）
 
 // ========== 焦点控制 ==========
-pkg.FOCUS_NEAR = 13  // 焦点前调
-pkg.FOCUS_FAR  = 14  // 焦点后调
+core.FOCUS_NEAR = 13  // 焦点前调
+core.FOCUS_FAR  = 14  // 焦点后调
 
 // ========== 光圈控制 ==========
-pkg.IRIS_OPEN  = 15  // 光圈扩大（变亮）
-pkg.IRIS_CLOSE = 16  // 光圈缩小（变暗）
+core.IRIS_OPEN  = 15  // 光圈扩大（变亮）
+core.IRIS_CLOSE = 16  // 光圈缩小（变暗）
 
 // ========== 预置点操作 ==========
-pkg.SET_PRESET  = 8   // 设置预置点
-pkg.CLE_PRESET  = 9   // 清除预置点
-pkg.GOTO_PRESET = 39  // 转到预置点
+core.SET_PRESET  = 8   // 设置预置点
+core.CLE_PRESET  = 9   // 清除预置点
+core.GOTO_PRESET = 39  // 转到预置点
 
 // ========== 辅助设备 ==========
-pkg.LIGHT_PWRON  = 2  // 接通灯光
-pkg.WIPER_PWRON  = 3  // 接通雨刷
+core.LIGHT_PWRON  = 2  // 接通灯光
+core.WIPER_PWRON  = 3  // 接通雨刷
 
 // ========== 自动扫描 ==========
-pkg.PAN_AUTO   = 29  // 左右自动扫描
-pkg.PAN_CIRCLE = 50  // 圆周扫描
+core.PAN_AUTO   = 29  // 左右自动扫描
+core.PAN_CIRCLE = 50  // 圆周扫描
 
 // ========== 巡航和轨迹 ==========
-pkg.RUN_SEQ         = 37  // 开始巡航
-pkg.STOP_SEQ        = 38  // 停止巡航
-pkg.RUN_CRUISE      = 36  // 开始轨迹
-pkg.STOP_CRUISE     = 44  // 停止轨迹
+core.RUN_SEQ         = 37  // 开始巡航
+core.STOP_SEQ        = 38  // 停止巡航
+core.RUN_CRUISE      = 36  // 开始轨迹
+core.STOP_CRUISE     = 44  // 停止轨迹
 
 // ========== 组合控制（移动+变焦） ==========
-pkg.TILT_DOWN_ZOOM_IN  = 58  // 下俯+放大
-pkg.PAN_LEFT_ZOOM_IN   = 60  // 左转+放大
-pkg.PAN_RIGHT_ZOOM_IN  = 62  // 右转+放大
+core.TILT_DOWN_ZOOM_IN  = 58  // 下俯+放大
+core.PAN_LEFT_ZOOM_IN   = 60  // 左转+放大
+core.PAN_RIGHT_ZOOM_IN  = 62  // 右转+放大
 // ... 更多组合命令，共63个
 
 // 查看完整命令列表：pkg/ptz_commands.go
@@ -655,16 +680,16 @@ pkg.PAN_RIGHT_ZOOM_IN  = 62  // 右转+放大
 
 ```go
 // 动作控制
-pkg.PTZ_START = 0  // 开始动作
-pkg.PTZ_STOP  = 1  // 停止动作
+core.PTZ_START = 0  // 开始动作
+core.PTZ_STOP  = 1  // 停止动作
 
 // 速度控制
-pkg.PTZ_SPEED_MIN     = 0  // 最小速度
-pkg.PTZ_SPEED_MAX     = 7  // 最大速度
-pkg.PTZ_SPEED_DEFAULT = 4  // 默认速度
+core.PTZ_SPEED_MIN     = 0  // 最小速度
+core.PTZ_SPEED_MAX     = 7  // 最大速度
+core.PTZ_SPEED_DEFAULT = 4  // 默认速度
 
 // 获取命令名称（调试用）
-name := pkg.GetPTZCommandName(pkg.PAN_RIGHT)
+name := core.GetPTZCommandName(core.PAN_RIGHT)
 // 返回: "云台右转"
 ```
 
@@ -684,7 +709,7 @@ dev.GetChannelPTZ(channelId)
 
 ```go
 // 1. 创建接收器
-receiver := &pkg.Receiver{}
+receiver := &core.Receiver{}
 err := receiver.Start()
 if err != nil {
 	fmt.Printf("接收器启动失败: %v\n", err)
@@ -724,19 +749,19 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-	"github.com/samsaralc/hiksdk/pkg"
+	"github.com/samsaralc/hiksdk/core"
 )
 
 func videoPreviewExample() {
-	pkg.InitHikSDK()
-	defer pkg.HKExit()
+	core.InitHikSDK()
+	defer core.Cleanup()
 
-	dev := pkg.NewHKDevice(deviceInfo)
-	dev.Login()
+	dev := core.NewHKDevice(deviceInfo)
+	dev.LoginV40()
 	defer dev.Logout()
 
 	// 启动接收器
-	receiver := &pkg.Receiver{}
+	receiver := &core.Receiver{}
 	receiver.Start()
 
 	// 启动预览
@@ -821,7 +846,7 @@ defer dev.StopListenAlarmMsg()
 
 #### 完整示例
 
-参考 `examples/alarm_listen.go`
+参考 `examples/05_alarm_listen.go`
 
 ---
 
@@ -851,19 +876,19 @@ export HIK_PASSWORD="your_password"
 
 ```bash
 # 运行所有测试
-go test -v ./pkg/...
+go test -v ./core/...
 
 # 运行设备管理测试
-go test -v ./pkg/ -run TestDevice
+go test -v ./core/ -run TestDevice
 
 # 运行 PTZ 控制测试
-go test -v ./pkg/ -run TestPTZ
+go test -v ./core/ -run TestPTZ
 
 # 运行基准测试（性能测试）
-go test -v ./pkg/ -bench=. -benchmem
+go test -v ./core/ -bench=. -benchmem
 
 # 查看测试覆盖率
-go test -v ./pkg/ -cover
+go test -v ./core/ -cover
 ```
 
 ### 3. 测试说明
@@ -885,20 +910,21 @@ go test -v ./pkg/ -cover
 
 ```bash
 # 运行示例（修改代码中的 IP、用户名、密码）
-go run examples/basic_usage.go
-go run examples/ptz_control.go
-go run examples/video_preview.go
-go run examples/alarm_listen.go
+go run examples/01_login_methods.go
+go run examples/03_ptz_control.go
+go run examples/04_video_preview.go
+go run examples/05_alarm_listen.go
 ```
 
 ### 示例说明
 
 | 示例 | 文件 | 功能演示 |
 |------|------|---------|
-| 基础使用 | `basic_usage.go` | 登录、获取设备信息、通道列表 |
-| PTZ 控制 | `ptz_control.go` | 云台移动、变焦、预置点 |
-| 视频预览 | `video_preview.go` | 启动预览、接收 PS 流、统计 |
-| 报警监听 | `alarm_listen.go` | 设置回调、监听报警事件 |
+| 登录方式 | `01_login_methods.go` | V30/V40 登录、动态IP解析 |
+| 设备信息 | `02_device_info.go` | 获取设备信息、通道列表 |
+| PTZ 控制 | `03_ptz_control.go` | 云台移动、变焦、预置点 |
+| 视频预览 | `04_video_preview.go` | 启动预览、接收 PS 流、统计 |
+| 报警监听 | `05_alarm_listen.go` | 设置回调、监听报警事件 |
 
 ## ❓ 常见问题
 
@@ -935,7 +961,7 @@ go run examples/alarm_listen.go
 **完全不需要！** 设备信息直接在代码中传参：
 
 ```go
-dev := pkg.NewHKDevice(pkg.DeviceInfo{
+dev := core.NewHKDevice(core.DeviceInfo{
     IP:       "192.168.1.64",  // 直接写在代码里
     Port:     8000,
     UserName: "admin",
@@ -1001,17 +1027,82 @@ SDK 提供 PS 流数据，你需要：
 - 防火墙是否阻止
 - 设备端口是否开放（默认 8000）
 
+## 🏗️ 架构设计
+
+### 核心特性
+- **模块化设计**：各功能模块独立（登录、PTZ、视频、报警、配置）
+- **优雅的错误处理**：统一的错误类型，包含错误码和详细描述
+- **自动资源管理**：使用 defer 模式确保资源正确释放
+- **可扩展接口**：清晰的接口设计，易于扩展新功能
+
+### 最佳实践
+```go
+// 1. 使用 defer 确保资源释放
+func main() {
+    // SDK 会自动初始化
+    dev := core.NewHKDevice(deviceInfo)
+    
+    // 程序退出时清理 SDK
+    defer core.Cleanup()
+    
+    // 登录设备
+    _, err := dev.LoginV40()
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer dev.Logout() // 确保登出
+    
+    // 使用设备...
+}
+
+// 2. 错误处理
+loginId, err := dev.LoginV40()
+if err != nil {
+    if hkErr, ok := err.(*core.HKError); ok {
+        log.Printf("错误码: %d, 描述: %s", hkErr.Code, hkErr.Msg)
+    }
+    return
+}
+
+// 3. 资源清理
+receiver := &core.Receiver{}
+receiver.Start()
+defer receiver.Stop() // 确保停止接收器
+
+lRealHandle, _ := dev.RealPlay_V40(1, receiver)
+defer dev.StopRealPlay() // 确保停止预览
+```
+
 ## 注意事项
 
-1. **线程安全**：SDK 的某些操作不是线程安全的，建议在主线程中进行设备登录/登出操作
-2. **资源管理**：务必调用 `defer dev.Logout()` 和 `defer pkg.HKExit()` 释放资源
-3. **错误处理**：所有 API 都会返回错误，请务必检查错误返回值
-4. **设备限制**：某些功能受设备型号和固件版本限制
-5. **并发连接**：同一设备支持的并发连接数有限，根据设备型号而定
+1. **线程安全**：
+   - SDK 初始化使用 `sync.Once`，保证线程安全
+   - 设备操作建议在单个 goroutine 中进行
+   - 回调函数会在单独的线程中执行
+
+2. **资源管理**：
+   - ✅ 务必使用 `defer dev.Logout()` 释放连接
+   - ✅ 务必使用 `defer core.Cleanup()` 清理 SDK
+   - ✅ 停止预览时会自动清理 cgo.Handle
+
+3. **错误处理**：
+   - 所有 API 都返回详细的错误信息
+   - 错误类型为 `*HKError`，包含错误码和描述
+   - 建议使用类型断言获取详细错误信息
+
+4. **设备限制**：
+   - 某些功能受设备型号和固件版本限制
+   - 建议在测试环境验证功能可用性
+   - 使用 V40 版本的 API 获得更好的兼容性
+
+5. **并发连接**：
+   - 同一设备支持的并发连接数有限（通常 128-512）
+   - 建议复用连接而非频繁创建/销毁
+   - 可以使用连接池模式管理多个设备
 
 ## 性能优化
 
-- 使用 `LoginV4` 替代 `Login` 可获得更好的性能
+- 使用 `LoginV40` 替代 `LoginV30` 可获得更好的性能
 - PTZ 控制建议使用 `PTZControlWithSpeed_Other` 而非 `PTZControlWithSpeed`
 - 视频预览时注意处理数据流，避免缓冲区溢出
 - 不使用时及时停止预览和监听，释放设备资源
