@@ -547,6 +547,34 @@ HIKSDK_API BOOL HIKSDK_CALL NET_DVR_PTZPreset_Other(
     DWORD dwPresetIndex                      // 预置点序号
 );
 
+HIKSDK_API BOOL HIKSDK_CALL NET_DVR_PTZCruise(
+    LONG lRealHandle,                        // 预览句柄
+    DWORD dwPTZCruiseCmd,                    // 巡航命令
+    BYTE byCruiseRoute,                      // 巡航路径
+    BYTE byCruisePoint,                      // 巡航点
+    WORD wInput                              // 输入参数
+);
+
+HIKSDK_API BOOL HIKSDK_CALL NET_DVR_PTZCruise_Other(
+    LONG lUserID,                            // 用户ID
+    LONG lChannel,                           // 通道号
+    DWORD dwPTZCruiseCmd,                    // 巡航命令
+    BYTE byCruiseRoute,                      // 巡航路径
+    BYTE byCruisePoint,                      // 巡航点
+    WORD wInput                              // 输入参数
+);
+
+HIKSDK_API BOOL HIKSDK_CALL NET_DVR_PTZTrack(
+    LONG lRealHandle,                        // 预览句柄
+    DWORD dwPTZTrackCmd                      // 轨迹命令
+);
+
+HIKSDK_API BOOL HIKSDK_CALL NET_DVR_PTZTrack_Other(
+    LONG lUserID,                            // 用户ID
+    LONG lChannel,                           // 通道号
+    DWORD dwPTZTrackCmd                      // 轨迹命令
+);
+
 /* ========================================================================
  * SDK函数声明 - 其他功能
  * ======================================================================== */
