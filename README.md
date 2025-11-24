@@ -147,16 +147,39 @@ go get github.com/samsaralc/hiksdk
 **复制粘贴以下命令到 PowerShell（管理员权限）：**
 
 ```powershell
-# 自动查找 SDK 库路径并永久添加到 PATH
-$hiksdkPath = Get-ChildItem -Path "$env:GOPATH\pkg\mod\github.com\samsaralc" -Filter "hiksdk@*" -Directory | Select-Object -First 1
+# 自动查找 HikSDK 并安全写入 PATH（仅用户级，不重复）
+
+# 1) 获取 GOPATH（没有则 fallback）
+$goPath = if ($env:GOPATH) { $env:GOPATH } else { "$env:USERPROFILE\go" }
+
+# 2) 查找 SDK 目录
+$hiksdkPath = Get-ChildItem -Path "$goPath\pkg\mod\github.com\samsaralc" `
+    -Filter "hiksdk@*" -Directory -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+
 if ($hiksdkPath) {
-    $libPath = "$($hiksdkPath.FullName)\lib\Windows"
-    [Environment]::SetEnvironmentVariable("Path", $env:Path + ";$libPath", "User")
-    Write-Host "✓ 库路径已永久添加: $libPath" -ForegroundColor Green
-    Write-Host "✓ 重启终端后生效" -ForegroundColor Yellow
+    $libPath = Join-Path $hiksdkPath.FullName "lib\Windows"
+
+    # 3) 读取当前用户 PATH（比直接用 $env:PATH 更安全）
+    $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
+
+    if ($currentPath -notlike "*$libPath*") {
+        $newPath = "$currentPath;$libPath"
+        [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+
+        Write-Host "✓ 已添加到 PATH（无重复）" -ForegroundColor Green
+        Write-Host "➤ 路径: $libPath" -ForegroundColor Cyan
+        Write-Host "⚠ 请重新打开终端后生效" -ForegroundColor Yellow
+    } else {
+        Write-Host "✔ 已存在，无需再次添加" -ForegroundColor Green
+        Write-Host "➤ 路径: $libPath" -ForegroundColor Cyan
+    }
 } else {
-    Write-Host "✗ 未找到 hiksdk，请先运行 go get github.com/samsaralc/hiksdk" -ForegroundColor Red
+    Write-Host "✗ 未找到 hiksdk，请先执行:" -ForegroundColor Red
+    Write-Host "    go get github.com/samsaralc/hiksdk" -ForegroundColor Yellow
 }
+
 ```
 
 **说明：**
@@ -169,15 +192,31 @@ if ($hiksdkPath) {
 
 ```bash
 # 自动查找 SDK 库路径并永久添加到 ~/.bashrc
-HIKSDK_LIB=$(find $GOPATH/pkg/mod/github.com/samsaralc -name "hiksdk@*" -type d 2>/dev/null | head -1)/lib/Linux
-if [ -n "$HIKSDK_LIB" ]; then
-    echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:$HIKSDK_LIB" >> ~/.bashrc
-    source ~/.bashrc
-    echo "✓ 库路径已永久添加: $HIKSDK_LIB"
-    echo "✓ 已生效，可以直接使用"
-else
-    echo "✗ 未找到 hiksdk，请先运行 go get github.com/samsaralc/hiksdk"
+#!/bin/bash
+
+set -e
+
+# 自动查找 hiksdk 库目录
+HIKSDK_LIB=$(find $GOPATH/pkg/mod/github.com/samsaralc -maxdepth 3 -name "hiksdk@*" -type d 2>/dev/null | head -1)/lib/Linux
+
+if [ ! -d "$HIKSDK_LIB" ]; then
+    echo "✗ 未找到 hiksdk 库，请先执行:"
+    echo "  go get github.com/samsaralc/hiksdk"
+    exit 1
 fi
+
+# 检查是否已存在
+if grep -q "$HIKSDK_LIB" ~/.bashrc; then
+    echo "✓ 已存在，无需重复添加"
+else
+    echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:$HIKSDK_LIB" >> ~/.bashrc
+    echo "✓ 已写入 ~/.bashrc"
+fi
+
+# 立即生效
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HIKSDK_LIB
+echo "✓ 已生效: $HIKSDK_LIB"
+
 ```
 
 **说明：**
