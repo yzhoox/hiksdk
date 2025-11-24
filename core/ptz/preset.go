@@ -9,6 +9,8 @@ import "C"
 import (
 	"fmt"
 	"log"
+
+	"github.com/samsaralc/hiksdk/core"
 )
 
 // 预置点命令常量（来自官方文档表 5.11）
@@ -138,9 +140,8 @@ func (p *PresetManager) control(cmd, presetID int) error {
 	)
 
 	if ret != C.TRUE {
-		errCode := int(C.NET_DVR_GetLastError())
-		return fmt.Errorf("预置点操作失败 [通道:%d Cmd:%d PresetID:%d 错误码:%d]",
-			p.channel, cmd, presetID, errCode)
+		return core.NewHKError(fmt.Sprintf("预置点操作[通道:%d 命令:%d 预置点:%d]",
+			p.channel, cmd, presetID))
 	}
 
 	return nil

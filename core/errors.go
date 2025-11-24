@@ -17,12 +17,11 @@ type HKError struct {
 	Code      int    `json:"code"`      // 错误码
 	Msg       string `json:"msg"`       // 错误消息
 	Operation string `json:"operation"` // 操作名称
-	IP        string `json:"ip"`        // 设备IP地址
 }
 
 // Error 实现error接口
 func (e *HKError) Error() string {
-	return fmt.Sprintf("code=%d, msg=%s, operation=%s, ip=%s", e.Code, e.Msg, e.Operation, e.IP)
+	return fmt.Sprintf("%s失败，错误码: %d, %s", e.Operation, e.Code, e.Msg)
 }
 
 // JSON 返回错误的JSON格式字符串
@@ -35,25 +34,28 @@ func (e *HKError) JSON() string {
 // 自动获取最后的错误码和错误消息
 // 参数：
 //   - operation: 操作名称，用于标识出错的操作
-//   - ip: 设备IP地址（可选）
 //
 // 返回值：
 //   - *HKError: 错误对象
-func NewHKError(operation string, ip string) *HKError {
+func NewHKError(operation string) *HKError {
 	errorCode := int(C.NET_DVR_GetLastError())
-	errorMsg := getErrorMsg(errorCode)
+	errorMsg := GetErrorMsg(errorCode)
 
 	return &HKError{
 		Code:      errorCode,
 		Msg:       errorMsg,
 		Operation: operation,
-		IP:        ip,
 	}
 }
 
-// getErrorMsg 根据错误码获取错误消息
+// GetErrorMsg 根据错误码获取错误消息
 // 包含了海康SDK的常见错误码及其说明
-func getErrorMsg(code int) string {
+// 参数：
+//   - code: 错误码
+//
+// 返回值：
+//   - string: 错误消息描述
+func GetErrorMsg(code int) string {
 	errorMsgs := map[int]string{
 		0:   "没有错误",
 		1:   "用户名或密码错误",

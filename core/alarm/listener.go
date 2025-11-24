@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"log"
 	"unsafe"
+
+	"github.com/samsaralc/hiksdk/core"
 )
 
 // 报警类型常量（来自官方SDK）
@@ -145,8 +147,7 @@ func (a *AlarmListener) Start() error {
 	))
 
 	if a.alarmHandle < 0 {
-		errCode := int(C.NET_DVR_GetLastError())
-		return fmt.Errorf("建立报警通道失败，错误码: %d", errCode)
+		return core.NewHKError("建立报警上传通道")
 	}
 
 	log.Printf("✓ 报警监听启动成功（句柄: %d）", a.alarmHandle)
@@ -160,8 +161,7 @@ func (a *AlarmListener) Start() error {
 func (a *AlarmListener) Stop() error {
 	if a.alarmHandle >= 0 {
 		if C.NET_DVR_CloseAlarmChan_V30(C.LONG(a.alarmHandle)) != C.TRUE {
-			errCode := int(C.NET_DVR_GetLastError())
-			return fmt.Errorf("关闭报警通道失败，错误码: %d", errCode)
+			return core.NewHKError("关闭报警上传通道")
 		}
 
 		a.alarmHandle = -1

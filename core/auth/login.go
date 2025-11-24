@@ -23,6 +23,7 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/samsaralc/hiksdk/core"
 	"github.com/samsaralc/hiksdk/core/utils"
 )
 
@@ -170,8 +171,7 @@ func LoginV40(cred *Credentials) (*SessionInfo, error) {
 	serialNumber := strings.Trim(string(serialNumberBytes), "\x00")
 
 	if loginID < 0 {
-		errCode := int(C.NET_DVR_GetLastError())
-		return nil, fmt.Errorf("登录失败(V40)，错误码: %d", errCode)
+		return nil, core.NewHKError("登录设备(V40)")
 	}
 
 	session := &SessionInfo{
@@ -227,8 +227,7 @@ func LoginV30(cred *Credentials) (*SessionInfo, error) {
 	serialNumber := strings.Trim(string(serialNumberBytes), "\x00")
 
 	if loginID < 0 {
-		errCode := int(C.NET_DVR_GetLastError())
-		return nil, fmt.Errorf("登录失败(V30)，错误码: %d", errCode)
+		return nil, core.NewHKError("登录设备(V30)")
 	}
 
 	session := &SessionInfo{
@@ -255,8 +254,7 @@ func Logout(loginID int) error {
 
 	result := C.NET_DVR_Logout(C.LONG(loginID))
 	if result == 0 {
-		errCode := int(C.NET_DVR_GetLastError())
-		return fmt.Errorf("登出失败，错误码: %d", errCode)
+		return core.NewHKError("登出设备")
 	}
 
 	log.Printf("✓ 登出成功（LoginID: %d）", loginID)
@@ -324,8 +322,7 @@ func ResolveDynamicIP(serverIP string, serverPort uint16, dvrName string, serial
 	)
 
 	if result == 0 {
-		errorCode := int(C.NET_DVR_GetLastError())
-		return "", 0, fmt.Errorf("解析设备IP失败，错误码: %d", errorCode)
+		return "", 0, core.NewHKError("解析设备动态IP")
 	}
 
 	// 转换结果

@@ -9,6 +9,8 @@ import "C"
 import (
 	"fmt"
 	"log"
+
+	"github.com/samsaralc/hiksdk/core"
 )
 
 // 轨迹命令常量（来自官方文档表 5.13）
@@ -102,8 +104,7 @@ func (t *TrackManager) control(cmd int) error {
 	)
 
 	if ret != C.TRUE {
-		errCode := int(C.NET_DVR_GetLastError())
-		return fmt.Errorf("轨迹操作失败 [通道:%d Cmd:%d 错误码:%d]", t.channel, cmd, errCode)
+		return core.NewHKError(fmt.Sprintf("轨迹操作[通道:%d 命令:%d]", t.channel, cmd))
 	}
 
 	return nil

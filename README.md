@@ -12,11 +12,11 @@ HikSDK 是海康威视官方 C SDK 的 Go 语言封装，通过 CGO 调用底层
 ## ✨ 功能特性
 
 - ✅ **用户认证**：设备登录/登出（V30/V40）、动态IP解析
-- ✅ **PTZ 控制**：云台移动、变焦、焦点、光圈、预置点、巡航、轨迹、辅助设备
+- ✅ **PTZ 控制**：统一控制器设计，支持云台移动、相机控制、辅助设备，提供自动/手动两种控制模式
 - ✅ **报警监听**：报警事件监听和处理
-- ✅ **错误处理**：统一的错误类型，包含240+错误码和详细说明
+- ✅ **错误处理**：统一的 `HKError` 结构体，包含240+错误码和详细说明
 - ✅ **跨平台支持**：完美兼容 Windows/Linux amd64
-- ✅ **模块化设计**：独立子包，职责单一，易于扩展
+- ✅ **模块化设计**：独立子包（auth/ptz/alarm），职责单一，易于扩展
 
 ## 🌍 跨平台兼容性
 
@@ -191,14 +191,14 @@ fi
 ```bash
 # 克隆本项目测试（或直接在你的项目中使用）
 git clone https://github.com/samsaralc/hiksdk.git
-cd hiksdk
+cd hiksdk/examples
 
-# 修改 examples/01_login_methods.go 中的 IP、用户名、密码
-# 然后运行
-go run examples/01_login_methods.go
+# 修改 login_test.go 中的 IP、用户名、密码
+# 然后运行测试
+go test -v -run TestLoginMethods
 ```
 
-**如果能看到输出，配置成功！** 🎉
+**如果能看到测试通过，配置成功！** 🎉
 
 之后在任何项目中使用 SDK 都无需再配置，**真正的开箱即用！**
 
@@ -222,106 +222,110 @@ go run examples/01_login_methods.go
 
 ### 1. 基础使用
 
-#### 最简示例（v1.4.0+ 推荐方式）
+#### 最简示例（v2.0+ 推荐方式）
 
 ```go
 package main
 
 import (
 	"fmt"
-	"github.com/samsaralc/hiksdk/core"
+	"github.com/samsaralc/hiksdk/core/auth"
 )
 
 func main() {
-	// 直接创建设备实例（SDK会自动初始化，无需手动调用）
-	deviceInfo := core.DeviceInfo{
+	// 创建设备连接凭据
+	cred := &auth.Credentials{
 		IP:       "192.168.1.64",
 		Port:     8000,
-		UserName: "admin",
+		Username: "admin",
 		Password: "password",
 	}
-	dev := core.NewHKDevice(deviceInfo) // ✨ 自动初始化SDK
 
 	// 登录设备（推荐使用V40版本）
-	loginId, err := dev.LoginV40()
+	session, err := auth.LoginV40(cred)
 	if err != nil {
 		fmt.Printf("登录失败: %v\n", err)
+		// 输出: 登录设备(V40)失败，错误码: 1, 用户名或密码错误
 		return
 	}
-	defer dev.Logout()
-	fmt.Printf("登录成功，ID: %d\n", loginId)
-
-	// 获取设备信息
-	info, _ := dev.GetDeviceInfo()
-	fmt.Printf("设备名称: %s\n", info.DeviceName)
-	fmt.Printf("通道数量: %d\n", info.ByChanNum)
+	defer auth.Logout(session.LoginID)
+	defer auth.Cleanup()
 	
-	// 程序结束时清理SDK（可选）
-	defer core.Cleanup()
+	fmt.Printf("登录成功！\n")
+	fmt.Printf("  登录ID: %d\n", session.LoginID)
+	fmt.Printf("  设备序列号: %s\n", session.SerialNumber)
+	fmt.Printf("  通道数量: %d\n", session.ChannelNum)
 }
 ```
 
 > ✨ **设计说明**:
-> - SDK 会在第一次调用 `NewHKDevice()` 时自动初始化，进程结束前只需调用一次 `Cleanup()` 即可清理资源
+> - SDK 会在第一次调用登录时自动初始化
+> - 使用 `auth.LoginV40(cred)` 返回会话信息
 > - 内部使用互斥锁和状态标记保证初始化/清理的线程安全
-> - 不再需要单独的 `InitHikSDK()`，示例中的用法已经反映了最新的生命周期设计
+> - 程序结束前调用 `auth.Cleanup()` 清理资源
 
-#### 完整示例（带错误处理）
+#### PTZ控制示例（v2.0+ 统一控制器）
 
 ```go
 package main
 
 import (
 	"fmt"
-	"github.com/samsaralc/hiksdk/core"
-	"os"
+	"time"
+	"github.com/samsaralc/hiksdk/core/auth"
+	"github.com/samsaralc/hiksdk/core/ptz"
 )
 
 func main() {
-	// 1. 配置设备
-	defer core.Cleanup()
-
-	// 2. 创建设备
-	dev := core.NewHKDevice(core.DeviceInfo{
+	// 1. 登录设备
+	cred := &auth.Credentials{
 		IP:       "192.168.1.64",
 		Port:     8000,
-		UserName: "admin",
+		Username: "admin",
 		Password: "password",
-	})
-
-	// 3. 登录
-	loginId, err := dev.LoginV30()
+	}
+	
+	session, err := auth.LoginV30(cred)
 	if err != nil {
 		fmt.Printf("登录失败: %v\n", err)
-		os.Exit(1)
-	}
-	defer dev.Logout()
-	fmt.Printf("✓ 登录成功 (ID: %d)\n", loginId)
-
-	// 4. 获取信息
-	info, err := dev.GetDeviceInfo()
-	if err != nil {
-		fmt.Printf("获取信息失败: %v\n", err)
 		return
 	}
+	defer auth.Logout(session.LoginID)
+	defer auth.Cleanup()
+	
+	fmt.Printf("✓ 登录成功 (ID: %d)\n", session.LoginID)
 
-	fmt.Printf("✓ 设备名称: %s\n", info.DeviceName)
-	fmt.Printf("✓ 序列号: %s\n", info.DeviceID)
-	fmt.Printf("✓ 通道数: %d\n", info.ByChanNum)
+	// 2. 创建统一的PTZ控制器
+	ctrl := ptz.NewController(session.LoginID, 1)  // 通道1
 
-	// 5. 获取通道列表
-	channels, err := dev.GetChannelName()
-	if err == nil {
-		for id, name := range channels {
-			fmt.Printf("  - 通道 %d: %s\n", id, name)
-		}
-	}
+	// 3. 云台移动（自动控制时长）
+	fmt.Println("\n云台移动控制:")
+	ctrl.Right(5, 2*time.Second)  // 右转2秒
+	ctrl.Up(5, 2*time.Second)     // 上仰2秒
+
+	// 4. 相机控制
+	fmt.Println("\n相机控制:")
+	ctrl.ZoomIn(1*time.Second)    // 焦距放大1秒
+	
+	// 5. 辅助设备
+	fmt.Println("\n辅助设备:")
+	ctrl.LightOn()                // 开启灯光
+	time.Sleep(2*time.Second)
+	ctrl.LightOff()               // 关闭灯光
+
+	// 6. 手动控制（灵活模式）
+	fmt.Println("\n手动控制:")
+	ctrl.StartLeft(4)             // 开始左转
+	time.Sleep(3*time.Second)     // 自己控制时长
+	ctrl.StopLeft()               // 停止左转
+	
+	fmt.Println("\n✓ 所有操作完成！")
 }
 ```
 
 ### 2. PTZ 云台控制
 
-#### 云台移动控制
+#### 统一的PTZ控制器
 
 ```go
 import (
@@ -330,56 +334,52 @@ import (
 	"github.com/samsaralc/hiksdk/core/ptz"
 )
 
-// 创建移动控制器
-movement := ptz.NewMovementController(dev.GetLoginID(), 1)
+// 创建统一的PTZ控制器（云台、相机、辅助设备）
+ctrl := ptz.NewController(dev.GetLoginID(), 1)
 
-// 右转2秒，速度5
-movement.Right(5, 2*time.Second)
+// ===== 方式1：自动控制时长（简单） =====
+// 云台移动
+ctrl.Right(5, 2*time.Second)     // 右转2秒，速度5
+ctrl.Up(7, 2*time.Second)        // 上仰2秒，速度7
+ctrl.UpRight(5, 3*time.Second)   // 右上斜向移动3秒
 
-// 上仰2秒，速度7
-movement.Up(7, 2*time.Second)
+// 相机控制
+ctrl.ZoomIn(1 * time.Second)     // 焦距放大（拉近）1秒
+ctrl.ZoomOut(1 * time.Second)    // 焦距缩小（拉远）1秒
+ctrl.FocusNear(1 * time.Second)  // 焦点前调（聚焦近处）1秒
+ctrl.IrisOpen(1 * time.Second)   // 光圈扩大（变亮）1秒
 
-// 右上斜向移动3秒
-movement.UpRight(5, 3*time.Second)
+// ===== 方式2：手动开始/停止（灵活） =====
+// 开始右转
+ctrl.StartRight(5)               // 速度5
+time.Sleep(3 * time.Second)      // 自己控制时长
+ctrl.StopRight()                 // 停止
+
+// 开始焦距放大
+ctrl.StartZoomIn()
+time.Sleep(500 * time.Millisecond)
+ctrl.StopZoomIn()
 
 // 自动扫描
-movement.AutoScan(3)           // 开始扫描，速度3
-time.Sleep(10 * time.Second)   // 扫描10秒
-movement.StopAutoScan()        // 停止扫描
-```
-
-#### 相机控制（变焦/焦点/光圈）
-
-```go
-// 创建相机控制器
-camera := ptz.NewCameraController(dev.GetLoginID(), 1)
-
-// 焦距放大（拉近）1秒
-camera.ZoomIn(1 * time.Second)
-
-// 焦距缩小（拉远）1秒
-camera.ZoomOut(1 * time.Second)
-
-// 焦点前调（聚焦近处）1秒
-camera.FocusNear(1 * time.Second)
-
-// 光圈扩大（变亮）1秒
-camera.IrisOpen(1 * time.Second)
+ctrl.AutoScan(3)                 // 开始扫描，速度3
+time.Sleep(10 * time.Second)     // 扫描10秒
+ctrl.StopAutoScan()              // 停止扫描
 ```
 
 #### 预置点控制
 
 ```go
-// 创建预置点控制器
+// 创建预置点管理器
 preset := ptz.NewPresetManager(dev.GetLoginID(), 1)
 
-// 设置预置点1
+// 设置预置点1（原点）
 preset.SetPreset(1)
 
 // 移动到其他位置
-movement.Left(4, 3*time.Second)
+ctrl := ptz.NewController(dev.GetLoginID(), 1)
+ctrl.Left(4, 3*time.Second)
 
-// 转到预置点1
+// 转到预置点1（回到原点）
 preset.GotoPreset(1)
 
 // 删除预置点1
@@ -389,7 +389,7 @@ preset.DeletePreset(1)
 #### 巡航控制
 
 ```go
-// 创建巡航控制器
+// 创建巡航管理器
 cruise := ptz.NewCruiseManager(dev.GetLoginID(), 1)
 
 // 配置巡航路径1
@@ -408,15 +408,16 @@ cruise.StopCruise(1)
 #### 轨迹控制
 
 ```go
-// 创建轨迹控制器
+// 创建轨迹管理器
 track := ptz.NewTrackManager(dev.GetLoginID(), 1)
 
 // 开始记录轨迹
 track.StartRecordTrack()
 
 // 手动控制云台移动（会被记录）
-movement.Right(5, 2*time.Second)
-movement.Up(5, 2*time.Second)
+ctrl := ptz.NewController(dev.GetLoginID(), 1)
+ctrl.Right(5, 2*time.Second)
+ctrl.Up(5, 2*time.Second)
 
 // 停止记录
 track.StopRecordTrack()
@@ -470,12 +471,14 @@ hiksdk/
 │   └── utils/                # 工具模块
 │       └── encoding.go       # GBK<->UTF8编码转换
 │
-├── examples/                  # 示例代码（5个）
-│   ├── 01_login_methods.go   # 登录方式示例
-│   ├── 03_ptz_control.go     # PTZ基础控制
-│   ├── 05_alarm_listen.go    # 报警监听
-│   ├── 06_cruise_track.go    # 巡航与轨迹
-│   └── 07_ptz_advanced.go    # PTZ高级控制
+├── examples/                  # 示例代码（6个测试文件）
+│   ├── login_test.go         # 登录方式示例
+│   ├── ptz_control_test.go   # PTZ基础控制（含原点回归）
+│   ├── alarm_listen_test.go  # 报警监听
+│   ├── cruise_track_test.go  # 巡航与轨迹
+│   ├── ptz_advanced_test.go  # PTZ高级控制（手动控制）
+│   ├── error_handling_test.go # 错误处理示例
+│   └── README.md             # 示例说明文档
 │
 ├── docs/                      # 官方文档（7个）
 │   ├── 用户注册.md           # 登录接口文档
@@ -513,62 +516,61 @@ hiksdk/
 #### 1. 初始化与清理
 
 ```go
-// v1.4.0+ 新版本（推荐）：自动初始化
+import "github.com/samsaralc/hiksdk/core/auth"
+
+// v2.0+ 新版本（推荐）：自动初始化
 func main() {
-	// 直接创建设备，SDK自动初始化
-	dev := core.NewHKDevice(deviceInfo)
+	// SDK在第一次登录时自动初始化
+	cred := &auth.Credentials{
+		IP:       "192.168.1.64",
+		Port:     8000,
+		Username: "admin",
+		Password: "password",
+	}
+	
+	session, err := auth.LoginV40(cred)  // 自动初始化SDK
+	if err != nil {
+		return
+	}
+	defer auth.Logout(session.LoginID)
 	
 	// 可选：程序退出时清理资源
-	defer core.Cleanup()
+	defer auth.Cleanup()
 	// ... 你的代码
 }
-
 ```
 
 #### 2. 设备登录
 
 ```go
-// 创建设备实例
-deviceInfo := core.DeviceInfo{
+import "github.com/samsaralc/hiksdk/core/auth"
+
+// 创建连接凭据
+cred := &auth.Credentials{
 	IP:       "192.168.1.64",  // 设备IP
 	Port:     8000,             // 端口（默认8000）
-	UserName: "admin",          // 用户名
+	Username: "admin",          // 用户名
 	Password: "password",       // 密码
 }
-dev := core.NewHKDevice(deviceInfo)
 
-// 登录方式1：使用 Login_V30（兼容旧设备）
-loginId, err := dev.LoginV30()
+// 登录方式1：使用 LoginV30（兼容旧设备）
+session, err := auth.LoginV30(cred)
 if err != nil {
 	// 处理登录失败
 	fmt.Printf("登录失败: %v\n", err)
+	// 输出: 登录设备(V30)失败，错误码: 1, 用户名或密码错误
 }
 
-// 登录方式2：使用 Login_V40（推荐，性能更好）
-loginId, err := dev.LoginV40()
+// 登录方式2：使用 LoginV40（推荐，性能更好）
+session, err := auth.LoginV40(cred)
+
+// 会话信息
+fmt.Printf("登录ID: %d\n", session.LoginID)
+fmt.Printf("序列号: %s\n", session.SerialNumber)
+fmt.Printf("通道数: %d\n", session.ChannelNum)
 
 // 登出（释放连接）
-err := dev.Logout()
-```
-
-#### 3. 获取设备信息
-
-```go
-// 获取设备详细信息
-info, err := dev.GetDeviceInfo()
-
-// 设备信息字段
-info.DeviceName  // 设备名称
-info.DeviceID    // 设备序列号
-info.ByChanNum   // 通道数量
-info.IP          // IP地址
-info.Port        // 端口
-info.UserName    // 用户名
-
-// 获取所有通道名称
-channels, err := dev.GetChannelName()
-// 返回: map[int]string - 通道ID → 通道名称
-// 示例: {1: "前门", 2: "后门", 3: "车库"}
+err = auth.Logout(session.LoginID)
 ```
 
 ---
@@ -579,51 +581,64 @@ channels, err := dev.GetChannelName()
 
 | 控制器 | 创建方式 | 主要功能 |
 |--------|---------|---------|
-| `MovementController` | `ptz.NewMovementController(userID, channel)` | 云台移动、自动扫描 |
-| `CameraController` | `ptz.NewCameraController(userID, channel)` | 变焦、焦点、光圈 |
+| `Controller` | `ptz.NewController(userID, channel)` | **统一控制器**：云台移动、相机控制、辅助设备 |
 | `PresetManager` | `ptz.NewPresetManager(userID, channel)` | 预置点设置/跳转/删除 |
 | `CruiseManager` | `ptz.NewCruiseManager(userID, channel)` | 巡航路径配置和控制 |
 | `TrackManager` | `ptz.NewTrackManager(userID, channel)` | 轨迹录制和回放 |
-| `AuxiliaryController` | `ptz.NewAuxiliaryController(userID, channel)` | 灯光/雨刷/风扇等 |
 
-#### 1. 云台移动
+> 💡 **重要变更**：v2.0+ 统一使用 `Controller`，不再需要分别创建 `MovementController`、`CameraController`、`AuxiliaryController`
+
+#### 1. 统一PTZ控制器（云台+相机+辅助设备）
 
 ```go
 import "github.com/samsaralc/hiksdk/core/ptz"
 
-movement := ptz.NewMovementController(dev.GetLoginID(), 1)
+// 创建统一控制器
+ctrl := ptz.NewController(dev.GetLoginID(), 1)
 
-// 单方向移动（自动处理开始/停止，速度1-7）
-movement.Up(5, 2*time.Second)       // 上仰
-movement.Down(5, 2*time.Second)     // 下俯
-movement.Left(5, 2*time.Second)     // 左转
-movement.Right(5, 2*time.Second)    // 右转
+// ===== 云台移动（两种控制方式） =====
+// 方式1：自动控制时长（简单，推荐日常使用）
+ctrl.Up(5, 2*time.Second)           // 上仰2秒，速度5
+ctrl.Down(5, 2*time.Second)         // 下俯2秒，速度5
+ctrl.Left(5, 2*time.Second)         // 左转2秒，速度5
+ctrl.Right(5, 2*time.Second)        // 右转2秒，速度5
+ctrl.UpLeft(4, 3*time.Second)       // 左上斜向3秒
+ctrl.UpRight(4, 3*time.Second)      // 右上斜向3秒
 
-// 组合移动
-movement.UpLeft(4, 3*time.Second)   // 左上
-movement.UpRight(4, 3*time.Second)  // 右上
+// 方式2：手动开始/停止（灵活，用于复杂控制）
+ctrl.StartRight(5)                  // 开始右转，速度5
+time.Sleep(3 * time.Second)         // 自己控制时长
+ctrl.StopRight()                    // 停止右转
+
+ctrl.StartUp(7)                     // 开始上仰，速度7
+// ... 执行其他操作 ...
+ctrl.StopUp()                       // 停止上仰
 
 // 自动扫描
-movement.AutoScan(3)                // 开始，速度3
-movement.StopAutoScan()             // 停止
-```
+ctrl.AutoScan(3)                    // 开始扫描，速度3
+ctrl.StopAutoScan()                 // 停止扫描
 
-#### 2. 相机控制
+// ===== 相机控制（变焦/焦点/光圈） =====
+// 自动控制时长
+ctrl.ZoomIn(1*time.Second)          // 焦距放大1秒
+ctrl.ZoomOut(1*time.Second)         // 焦距缩小1秒
+ctrl.FocusNear(1*time.Second)       // 焦点前调1秒
+ctrl.FocusFar(1*time.Second)        // 焦点后调1秒
+ctrl.IrisOpen(1*time.Second)        // 光圈扩大1秒
+ctrl.IrisClose(1*time.Second)       // 光圈缩小1秒
 
-```go
-camera := ptz.NewCameraController(dev.GetLoginID(), 1)
+// 手动开始/停止
+ctrl.StartZoomIn()                  // 开始焦距放大
+time.Sleep(500 * time.Millisecond)
+ctrl.StopZoomIn()                   // 停止焦距放大
 
-// 变焦
-camera.ZoomIn(1*time.Second)        // 放大
-camera.ZoomOut(1*time.Second)       // 缩小
-
-// 焦点
-camera.FocusNear(1*time.Second)     // 前调
-camera.FocusFar(1*time.Second)      // 后调
-
-// 光圈
-camera.IrisOpen(1*time.Second)      // 扩大
-camera.IrisClose(1*time.Second)     // 缩小
+// ===== 辅助设备控制 =====
+ctrl.LightOn()                      // 开启灯光
+ctrl.LightOff()                     // 关闭灯光
+ctrl.WiperOn()                      // 开启雨刷
+ctrl.WiperOff()                     // 关闭雨刷
+ctrl.FanOn()                        // 开启风扇
+ctrl.HeaterOn()                     // 开启加热器
 ```
 
 #### 3. 预置点
@@ -665,12 +680,15 @@ track.RunTrack()                    // 执行轨迹
 #### 6. 辅助设备
 
 ```go
-aux := ptz.NewAuxiliaryController(dev.GetLoginID(), 1)
+// 使用统一控制器
+ctrl := ptz.NewController(dev.GetLoginID(), 1)
 
-aux.LightOn() / aux.LightOff()      // 灯光
-aux.WiperOn() / aux.WiperOff()      // 雨刷
-aux.FanOn() / aux.FanOff()          // 风扇
-aux.HeaterOn() / aux.HeaterOff()    // 加热器
+ctrl.LightOn()  / ctrl.LightOff()      // 灯光
+ctrl.WiperOn()  / ctrl.WiperOff()      // 雨刷
+ctrl.FanOn()    / ctrl.FanOff()        // 风扇
+ctrl.HeaterOn() / ctrl.HeaterOff()     // 加热器
+ctrl.AuxDevice1On() / ctrl.AuxDevice1Off()  // 辅助设备1
+ctrl.AuxDevice2On() / ctrl.AuxDevice2Off()  // 辅助设备2
 ```
 
 ---
@@ -878,25 +896,37 @@ go test -v ./core/ -cover
 
 ## 📖 运行示例
 
-配置好动态库路径后，可以直接运行示例：
+配置好动态库路径后，可以直接运行示例测试：
 
 ```bash
-# 运行示例（修改代码中的 IP、用户名、密码）
-go run examples/01_login_methods.go
-go run examples/03_ptz_control.go
-go run examples/04_video_preview.go
-go run examples/05_alarm_listen.go
+# 进入示例目录
+cd examples
+
+# 修改测试文件中的 IP、用户名、密码
+# 然后运行所有示例
+go test -v
+
+# 或运行特定示例
+go test -v -run TestLoginMethods    # 登录示例
+go test -v -run TestPTZControl      # PTZ控制示例
+go test -v -run TestAlarmListen     # 报警监听示例
+go test -v -run TestCruiseTrack     # 巡航轨迹示例
+go test -v -run TestPTZAdvanced     # PTZ高级控制
+go test -v -run TestErrorHandling   # 错误处理示例
 ```
 
 ### 示例说明
 
 | 示例 | 文件 | 功能演示 |
 |------|------|---------|
-| 登录方式 | `01_login_methods.go` | V30/V40 登录、动态IP解析 |
-| 设备信息 | `02_device_info.go` | 获取设备信息、通道列表 |
-| PTZ 控制 | `03_ptz_control.go` | 云台移动、变焦、预置点 |
-| 视频预览 | `04_video_preview.go` | 启动预览、接收 PS 流、统计 |
-| 报警监听 | `05_alarm_listen.go` | 设置回调、监听报警事件 |
+| 登录方式 | `login_test.go` | V30/V40 登录对比、动态IP解析 |
+| PTZ 控制 | `ptz_control_test.go` | 云台移动、相机控制、预置点、回到原点 |
+| 报警监听 | `alarm_listen_test.go` | 设置回调、监听报警事件 |
+| 巡航轨迹 | `cruise_track_test.go` | 巡航路径配置、轨迹录制回放 |
+| PTZ 高级 | `ptz_advanced_test.go` | 手动开始/停止、自动扫描、辅助设备 |
+| 错误处理 | `error_handling_test.go` | HKError结构体、错误码说明 |
+
+> 💡 **提示**：所有示例都是测试文件格式，使用 `go test` 运行，不会有 main 函数冲突
 
 ## ❓ 常见问题
 
@@ -1002,47 +1032,87 @@ SDK 提供 PS 流数据，你需要：
 ## 🏗️ 架构设计
 
 ### 核心特性
-- **模块化设计**：各功能模块独立（登录、PTZ、视频、报警、配置）
-- **优雅的错误处理**：统一的错误类型，包含错误码和详细描述
+- **模块化设计**：各功能模块独立（auth登录、ptz云台、alarm报警）
+- **统一PTZ控制器**：一个 `Controller` 管理所有PTZ操作（云台、相机、辅助设备）
+- **优雅的错误处理**：统一的 `HKError` 结构体，包含240+错误码和详细描述
 - **自动资源管理**：使用 defer 模式确保资源正确释放
+- **两种控制模式**：自动计时（简单）+ 手动开始/停止（灵活）
 - **可扩展接口**：清晰的接口设计，易于扩展新功能
+
+### PTZ 控制器设计理念
+
+v2.0+ 采用**统一控制器**设计，将云台移动、相机控制、辅助设备整合到一个 `Controller` 中：
+
+```go
+// v2.0+ 新设计（推荐）
+ctrl := ptz.NewController(userID, channel)
+ctrl.Right(5, 2*time.Second)    // 云台移动
+ctrl.ZoomIn(1*time.Second)      // 相机控制
+ctrl.LightOn()                  // 辅助设备
+```
+
+**优势：**
+- ✅ 更简洁的API，只需创建一个控制器
+- ✅ 统一的参数和返回值
+- ✅ 统一的错误处理
+- ✅ 减少代码重复
+
+**两种控制模式：**
+1. **自动计时模式**：`ctrl.Right(speed, duration)` - 简单，适合大多数场景
+2. **手动模式**：`ctrl.StartRight(speed)` + `ctrl.StopRight()` - 灵活，适合复杂控制
 
 ### 最佳实践
 ```go
+import (
+	"log"
+	"github.com/samsaralc/hiksdk/core"
+	"github.com/samsaralc/hiksdk/core/auth"
+	"github.com/samsaralc/hiksdk/core/ptz"
+)
+
 // 1. 使用 defer 确保资源释放
 func main() {
-    // SDK 会自动初始化
-    dev := core.NewHKDevice(deviceInfo)
-    
     // 程序退出时清理 SDK
-    defer core.Cleanup()
+    defer auth.Cleanup()
     
     // 登录设备
-    _, err := dev.LoginV40()
+    cred := &auth.Credentials{IP: "192.168.1.64", Port: 8000, Username: "admin", Password: "password"}
+    session, err := auth.LoginV40(cred)
     if err != nil {
         log.Fatal(err)
     }
-    defer dev.Logout() // 确保登出
+    defer auth.Logout(session.LoginID) // 确保登出
     
     // 使用设备...
 }
 
-// 2. 错误处理
-loginId, err := dev.LoginV40()
+// 2. 错误处理（统一的 HKError）
+session, err := auth.LoginV40(cred)
 if err != nil {
+    // 方式1：直接打印错误（推荐）
+    log.Printf("登录失败: %v", err)
+    // 输出: 登录设备(V40)失败，错误码: 1, 用户名或密码错误
+    
+    // 方式2：获取详细信息
     if hkErr, ok := err.(*core.HKError); ok {
-        log.Printf("错误码: %d, 描述: %s", hkErr.Code, hkErr.Msg)
+        log.Printf("错误码: %d", hkErr.Code)
+        log.Printf("错误描述: %s", hkErr.Msg)
+        log.Printf("操作: %s", hkErr.Operation)
+        log.Printf("JSON: %s", hkErr.JSON())
     }
     return
 }
 
-// 3. 资源清理
-receiver := &core.Receiver{}
-receiver.Start()
-defer receiver.Stop() // 确保停止接收器
+// 3. PTZ控制（统一控制器）
+ctrl := ptz.NewController(session.LoginID, 1)
 
-lRealHandle, _ := dev.RealPlay_V40(1, receiver)
-defer dev.StopRealPlay() // 确保停止预览
+// 自动控制时长（简单）
+ctrl.Right(5, 2*time.Second)
+
+// 手动开始/停止（灵活）
+ctrl.StartLeft(5)
+time.Sleep(3*time.Second)
+ctrl.StopLeft()
 ```
 
 ## 注意事项
@@ -1058,8 +1128,9 @@ defer dev.StopRealPlay() // 确保停止预览
    - ✅ 停止预览时会自动清理 cgo.Handle
 
 3. **错误处理**：
-   - 所有 API 都返回详细的错误信息
-   - 错误类型为 `*HKError`，包含错误码和描述
+   - 所有 API 都返回统一的 `*core.HKError` 错误对象
+   - 包含错误码、错误描述、操作名称
+   - 支持 JSON 序列化，方便日志记录
    - 建议使用类型断言获取详细错误信息
 
 4. **设备限制**：

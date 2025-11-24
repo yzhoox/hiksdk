@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"log"
 	"time"
+
+	"github.com/samsaralc/hiksdk/core"
 )
 
 // ==================== 云台移动命令常量（来自官方文档表 5.10）====================
@@ -89,123 +91,396 @@ const (
 	DefaultSpeed = 4
 )
 
-// ==================== MovementController 云台移动控制器 ====================
+// ==================== Controller 统一的PTZ控制器 ====================
 
-// MovementController 云台移动控制器
-// 封装云台的方向移动操作
-type MovementController struct {
+// Controller PTZ统一控制器
+// 封装云台移动、相机控制、辅助设备控制的所有操作
+type Controller struct {
 	userID  int // 登录句柄
 	channel int // 通道号
 }
 
-// NewMovementController 创建云台移动控制器
-func NewMovementController(userID int, channel int) *MovementController {
-	return &MovementController{
+// NewController 创建PTZ控制器
+// 参数：
+//   - userID: 登录句柄
+//   - channel: 通道号
+func NewController(userID int, channel int) *Controller {
+	return &Controller{
 		userID:  userID,
 		channel: channel,
 	}
 }
 
-// Up 云台上仰
+// ==================== 云台移动控制（带持续时间，自动停止）====================
+
+// Up 云台上仰（自动控制时长后停止）
 // 参数：
 //   - speed: 速度（1-7）
 //   - duration: 持续时间
-func (m *MovementController) Up(speed int, duration time.Duration) error {
-	return m.move(TILT_UP, speed, duration)
+func (c *Controller) Up(speed int, duration time.Duration) error {
+	return c.move(TILT_UP, speed, duration)
 }
 
-// Down 云台下俯
+// Down 云台下俯（自动控制时长后停止）
 // 参数：
 //   - speed: 速度（1-7）
 //   - duration: 持续时间
-func (m *MovementController) Down(speed int, duration time.Duration) error {
-	return m.move(TILT_DOWN, speed, duration)
+func (c *Controller) Down(speed int, duration time.Duration) error {
+	return c.move(TILT_DOWN, speed, duration)
 }
 
-// Left 云台左转
+// Left 云台左转（自动控制时长后停止）
 // 参数：
 //   - speed: 速度（1-7）
 //   - duration: 持续时间
-func (m *MovementController) Left(speed int, duration time.Duration) error {
-	return m.move(PAN_LEFT, speed, duration)
+func (c *Controller) Left(speed int, duration time.Duration) error {
+	return c.move(PAN_LEFT, speed, duration)
 }
 
-// Right 云台右转
+// Right 云台右转（自动控制时长后停止）
 // 参数：
 //   - speed: 速度（1-7）
 //   - duration: 持续时间
-func (m *MovementController) Right(speed int, duration time.Duration) error {
-	return m.move(PAN_RIGHT, speed, duration)
+func (c *Controller) Right(speed int, duration time.Duration) error {
+	return c.move(PAN_RIGHT, speed, duration)
 }
 
-// UpLeft 云台上仰并左转
+// UpLeft 云台上仰并左转（自动控制时长后停止）
 // 参数：
 //   - speed: 速度（1-7）
 //   - duration: 持续时间
-func (m *MovementController) UpLeft(speed int, duration time.Duration) error {
-	return m.move(UP_LEFT, speed, duration)
+func (c *Controller) UpLeft(speed int, duration time.Duration) error {
+	return c.move(UP_LEFT, speed, duration)
 }
 
-// UpRight 云台上仰并右转
+// UpRight 云台上仰并右转（自动控制时长后停止）
 // 参数：
 //   - speed: 速度（1-7）
 //   - duration: 持续时间
-func (m *MovementController) UpRight(speed int, duration time.Duration) error {
-	return m.move(UP_RIGHT, speed, duration)
+func (c *Controller) UpRight(speed int, duration time.Duration) error {
+	return c.move(UP_RIGHT, speed, duration)
 }
 
-// DownLeft 云台下俯并左转
+// DownLeft 云台下俯并左转（自动控制时长后停止）
 // 参数：
 //   - speed: 速度（1-7）
 //   - duration: 持续时间
-func (m *MovementController) DownLeft(speed int, duration time.Duration) error {
-	return m.move(DOWN_LEFT, speed, duration)
+func (c *Controller) DownLeft(speed int, duration time.Duration) error {
+	return c.move(DOWN_LEFT, speed, duration)
 }
 
-// DownRight 云台下俯并右转
+// DownRight 云台下俯并右转（自动控制时长后停止）
 // 参数：
 //   - speed: 速度（1-7）
 //   - duration: 持续时间
-func (m *MovementController) DownRight(speed int, duration time.Duration) error {
-	return m.move(DOWN_RIGHT, speed, duration)
+func (c *Controller) DownRight(speed int, duration time.Duration) error {
+	return c.move(DOWN_RIGHT, speed, duration)
 }
 
-// AutoScan 云台左右自动扫描
+// AutoScan 云台左右自动扫描（持续扫描，需要手动停止）
 // 参数：
 //   - speed: 速度（1-7）
-func (m *MovementController) AutoScan(speed int) error {
-	if err := m.validateSpeed(speed); err != nil {
+func (c *Controller) AutoScan(speed int) error {
+	if err := c.validateSpeed(speed); err != nil {
 		return err
 	}
 
 	// 开始自动扫描
-	if err := m.controlWithSpeed(PAN_AUTO, PTZ_START, speed); err != nil {
+	if err := c.controlWithSpeed(PAN_AUTO, PTZ_START, speed); err != nil {
 		return fmt.Errorf("启动自动扫描失败: %w", err)
 	}
 
-	log.Printf("✓ 启动自动扫描（通道%d，速度%d）", m.channel, speed)
+	log.Printf("✓ 启动自动扫描（通道%d，速度%d）", c.channel, speed)
 	return nil
 }
 
 // StopAutoScan 停止自动扫描
-func (m *MovementController) StopAutoScan() error {
-	if err := m.controlWithSpeed(PAN_AUTO, PTZ_STOP, DefaultSpeed); err != nil {
+func (c *Controller) StopAutoScan() error {
+	if err := c.controlWithSpeed(PAN_AUTO, PTZ_STOP, DefaultSpeed); err != nil {
 		return fmt.Errorf("停止自动扫描失败: %w", err)
 	}
 
-	log.Printf("✓ 停止自动扫描（通道%d）", m.channel)
+	log.Printf("✓ 停止自动扫描（通道%d）", c.channel)
 	return nil
 }
 
-// move 内部移动函数，自动处理开始和停止
-func (m *MovementController) move(cmd, speed int, duration time.Duration) error {
+// ==================== 云台移动控制（手动开始/停止）====================
+
+// StartUp 开始云台上仰（需手动调用StopUp停止）
+// 参数：
+//   - speed: 速度（1-7）
+func (c *Controller) StartUp(speed int) error {
+	return c.startMove(TILT_UP, speed, "上仰")
+}
+
+// StopUp 停止云台上仰
+func (c *Controller) StopUp() error {
+	return c.stopMove(TILT_UP, "上仰")
+}
+
+// StartDown 开始云台下俯（需手动调用StopDown停止）
+// 参数：
+//   - speed: 速度（1-7）
+func (c *Controller) StartDown(speed int) error {
+	return c.startMove(TILT_DOWN, speed, "下俯")
+}
+
+// StopDown 停止云台下俯
+func (c *Controller) StopDown() error {
+	return c.stopMove(TILT_DOWN, "下俯")
+}
+
+// StartLeft 开始云台左转（需手动调用StopLeft停止）
+// 参数：
+//   - speed: 速度（1-7）
+func (c *Controller) StartLeft(speed int) error {
+	return c.startMove(PAN_LEFT, speed, "左转")
+}
+
+// StopLeft 停止云台左转
+func (c *Controller) StopLeft() error {
+	return c.stopMove(PAN_LEFT, "左转")
+}
+
+// StartRight 开始云台右转（需手动调用StopRight停止）
+// 参数：
+//   - speed: 速度（1-7）
+func (c *Controller) StartRight(speed int) error {
+	return c.startMove(PAN_RIGHT, speed, "右转")
+}
+
+// StopRight 停止云台右转
+func (c *Controller) StopRight() error {
+	return c.stopMove(PAN_RIGHT, "右转")
+}
+
+// StartUpLeft 开始云台上仰并左转（需手动调用StopUpLeft停止）
+// 参数：
+//   - speed: 速度（1-7）
+func (c *Controller) StartUpLeft(speed int) error {
+	return c.startMove(UP_LEFT, speed, "上仰左转")
+}
+
+// StopUpLeft 停止云台上仰并左转
+func (c *Controller) StopUpLeft() error {
+	return c.stopMove(UP_LEFT, "上仰左转")
+}
+
+// StartUpRight 开始云台上仰并右转（需手动调用StopUpRight停止）
+// 参数：
+//   - speed: 速度（1-7）
+func (c *Controller) StartUpRight(speed int) error {
+	return c.startMove(UP_RIGHT, speed, "上仰右转")
+}
+
+// StopUpRight 停止云台上仰并右转
+func (c *Controller) StopUpRight() error {
+	return c.stopMove(UP_RIGHT, "上仰右转")
+}
+
+// StartDownLeft 开始云台下俯并左转（需手动调用StopDownLeft停止）
+// 参数：
+//   - speed: 速度（1-7）
+func (c *Controller) StartDownLeft(speed int) error {
+	return c.startMove(DOWN_LEFT, speed, "下俯左转")
+}
+
+// StopDownLeft 停止云台下俯并左转
+func (c *Controller) StopDownLeft() error {
+	return c.stopMove(DOWN_LEFT, "下俯左转")
+}
+
+// StartDownRight 开始云台下俯并右转（需手动调用StopDownRight停止）
+// 参数：
+//   - speed: 速度（1-7）
+func (c *Controller) StartDownRight(speed int) error {
+	return c.startMove(DOWN_RIGHT, speed, "下俯右转")
+}
+
+// StopDownRight 停止云台下俯并右转
+func (c *Controller) StopDownRight() error {
+	return c.stopMove(DOWN_RIGHT, "下俯右转")
+}
+
+// ==================== 相机控制（带持续时间，自动停止）====================
+
+// ZoomIn 焦距放大（拉近，自动控制时长后停止）
+// 参数：
+//   - duration: 持续时间
+func (c *Controller) ZoomIn(duration time.Duration) error {
+	return c.adjustCamera(ZOOM_IN, duration, "焦距放大")
+}
+
+// ZoomOut 焦距缩小（拉远，自动控制时长后停止）
+// 参数：
+//   - duration: 持续时间
+func (c *Controller) ZoomOut(duration time.Duration) error {
+	return c.adjustCamera(ZOOM_OUT, duration, "焦距缩小")
+}
+
+// FocusNear 焦点前调（聚焦近处，自动控制时长后停止）
+// 参数：
+//   - duration: 持续时间
+func (c *Controller) FocusNear(duration time.Duration) error {
+	return c.adjustCamera(FOCUS_NEAR, duration, "焦点前调")
+}
+
+// FocusFar 焦点后调（聚焦远处，自动控制时长后停止）
+// 参数：
+//   - duration: 持续时间
+func (c *Controller) FocusFar(duration time.Duration) error {
+	return c.adjustCamera(FOCUS_FAR, duration, "焦点后调")
+}
+
+// IrisOpen 光圈扩大（变亮，自动控制时长后停止）
+// 参数：
+//   - duration: 持续时间
+func (c *Controller) IrisOpen(duration time.Duration) error {
+	return c.adjustCamera(IRIS_OPEN, duration, "光圈扩大")
+}
+
+// IrisClose 光圈缩小（变暗，自动控制时长后停止）
+// 参数：
+//   - duration: 持续时间
+func (c *Controller) IrisClose(duration time.Duration) error {
+	return c.adjustCamera(IRIS_CLOSE, duration, "光圈缩小")
+}
+
+// ==================== 相机控制（手动开始/停止）====================
+
+// StartZoomIn 开始焦距放大（需手动调用StopZoomIn停止）
+func (c *Controller) StartZoomIn() error {
+	return c.startCamera(ZOOM_IN, "焦距放大")
+}
+
+// StopZoomIn 停止焦距放大
+func (c *Controller) StopZoomIn() error {
+	return c.stopCamera(ZOOM_IN, "焦距放大")
+}
+
+// StartZoomOut 开始焦距缩小（需手动调用StopZoomOut停止）
+func (c *Controller) StartZoomOut() error {
+	return c.startCamera(ZOOM_OUT, "焦距缩小")
+}
+
+// StopZoomOut 停止焦距缩小
+func (c *Controller) StopZoomOut() error {
+	return c.stopCamera(ZOOM_OUT, "焦距缩小")
+}
+
+// StartFocusNear 开始焦点前调（需手动调用StopFocusNear停止）
+func (c *Controller) StartFocusNear() error {
+	return c.startCamera(FOCUS_NEAR, "焦点前调")
+}
+
+// StopFocusNear 停止焦点前调
+func (c *Controller) StopFocusNear() error {
+	return c.stopCamera(FOCUS_NEAR, "焦点前调")
+}
+
+// StartFocusFar 开始焦点后调（需手动调用StopFocusFar停止）
+func (c *Controller) StartFocusFar() error {
+	return c.startCamera(FOCUS_FAR, "焦点后调")
+}
+
+// StopFocusFar 停止焦点后调
+func (c *Controller) StopFocusFar() error {
+	return c.stopCamera(FOCUS_FAR, "焦点后调")
+}
+
+// StartIrisOpen 开始光圈扩大（需手动调用StopIrisOpen停止）
+func (c *Controller) StartIrisOpen() error {
+	return c.startCamera(IRIS_OPEN, "光圈扩大")
+}
+
+// StopIrisOpen 停止光圈扩大
+func (c *Controller) StopIrisOpen() error {
+	return c.stopCamera(IRIS_OPEN, "光圈扩大")
+}
+
+// StartIrisClose 开始光圈缩小（需手动调用StopIrisClose停止）
+func (c *Controller) StartIrisClose() error {
+	return c.startCamera(IRIS_CLOSE, "光圈缩小")
+}
+
+// StopIrisClose 停止光圈缩小
+func (c *Controller) StopIrisClose() error {
+	return c.stopCamera(IRIS_CLOSE, "光圈缩小")
+}
+
+// ==================== 辅助设备控制 ====================
+
+// LightOn 接通灯光电源
+func (c *Controller) LightOn() error {
+	return c.switchDevice(LIGHT_PWRON, true, "灯光")
+}
+
+// LightOff 关闭灯光电源
+func (c *Controller) LightOff() error {
+	return c.switchDevice(LIGHT_PWRON, false, "灯光")
+}
+
+// WiperOn 接通雨刷
+func (c *Controller) WiperOn() error {
+	return c.switchDevice(WIPER_PWRON, true, "雨刷")
+}
+
+// WiperOff 关闭雨刷
+func (c *Controller) WiperOff() error {
+	return c.switchDevice(WIPER_PWRON, false, "雨刷")
+}
+
+// FanOn 接通风扇
+func (c *Controller) FanOn() error {
+	return c.switchDevice(FAN_PWRON, true, "风扇")
+}
+
+// FanOff 关闭风扇
+func (c *Controller) FanOff() error {
+	return c.switchDevice(FAN_PWRON, false, "风扇")
+}
+
+// HeaterOn 接通加热器
+func (c *Controller) HeaterOn() error {
+	return c.switchDevice(HEATER_PWRON, true, "加热器")
+}
+
+// HeaterOff 关闭加热器
+func (c *Controller) HeaterOff() error {
+	return c.switchDevice(HEATER_PWRON, false, "加热器")
+}
+
+// AuxDevice1On 接通辅助设备1
+func (c *Controller) AuxDevice1On() error {
+	return c.switchDevice(AUX_PWRON1, true, "辅助设备1")
+}
+
+// AuxDevice1Off 关闭辅助设备1
+func (c *Controller) AuxDevice1Off() error {
+	return c.switchDevice(AUX_PWRON1, false, "辅助设备1")
+}
+
+// AuxDevice2On 接通辅助设备2
+func (c *Controller) AuxDevice2On() error {
+	return c.switchDevice(AUX_PWRON2, true, "辅助设备2")
+}
+
+// AuxDevice2Off 关闭辅助设备2
+func (c *Controller) AuxDevice2Off() error {
+	return c.switchDevice(AUX_PWRON2, false, "辅助设备2")
+}
+
+// ==================== 内部实现函数 ====================
+
+// move 云台移动（带速度和时长）
+func (c *Controller) move(cmd, speed int, duration time.Duration) error {
 	// 验证速度
-	if err := m.validateSpeed(speed); err != nil {
+	if err := c.validateSpeed(speed); err != nil {
 		return err
 	}
 
 	// 开始移动
-	if err := m.controlWithSpeed(cmd, PTZ_START, speed); err != nil {
+	if err := c.controlWithSpeed(cmd, PTZ_START, speed); err != nil {
 		return err
 	}
 
@@ -213,76 +488,41 @@ func (m *MovementController) move(cmd, speed int, duration time.Duration) error 
 	time.Sleep(duration)
 
 	// 停止移动
-	if err := m.controlWithSpeed(cmd, PTZ_STOP, speed); err != nil {
+	if err := c.controlWithSpeed(cmd, PTZ_STOP, speed); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// ==================== CameraController 相机控制器 ====================
-
-// CameraController 相机控制器
-// 封装焦距、焦点、光圈等相机参数控制
-type CameraController struct {
-	userID  int // 登录句柄
-	channel int // 通道号
-}
-
-// NewCameraController 创建相机控制器
-func NewCameraController(userID int, channel int) *CameraController {
-	return &CameraController{
-		userID:  userID,
-		channel: channel,
+// startMove 开始云台移动（手动控制）
+func (c *Controller) startMove(cmd, speed int, actionName string) error {
+	if err := c.validateSpeed(speed); err != nil {
+		return err
 	}
+
+	if err := c.controlWithSpeed(cmd, PTZ_START, speed); err != nil {
+		return fmt.Errorf("开始%s失败: %w", actionName, err)
+	}
+
+	log.Printf("✓ 开始%s（通道%d，速度%d）", actionName, c.channel, speed)
+	return nil
 }
 
-// ZoomIn 焦距放大（拉近）
-// 参数：
-//   - duration: 持续时间
-func (c *CameraController) ZoomIn(duration time.Duration) error {
-	return c.adjust(ZOOM_IN, duration, "焦距放大")
+// stopMove 停止云台移动（手动控制）
+func (c *Controller) stopMove(cmd int, actionName string) error {
+	if err := c.controlWithSpeed(cmd, PTZ_STOP, DefaultSpeed); err != nil {
+		return fmt.Errorf("停止%s失败: %w", actionName, err)
+	}
+
+	log.Printf("✓ 停止%s（通道%d）", actionName, c.channel)
+	return nil
 }
 
-// ZoomOut 焦距缩小（拉远）
-// 参数：
-//   - duration: 持续时间
-func (c *CameraController) ZoomOut(duration time.Duration) error {
-	return c.adjust(ZOOM_OUT, duration, "焦距缩小")
-}
-
-// FocusNear 焦点前调（聚焦近处）
-// 参数：
-//   - duration: 持续时间
-func (c *CameraController) FocusNear(duration time.Duration) error {
-	return c.adjust(FOCUS_NEAR, duration, "焦点前调")
-}
-
-// FocusFar 焦点后调（聚焦远处）
-// 参数：
-//   - duration: 持续时间
-func (c *CameraController) FocusFar(duration time.Duration) error {
-	return c.adjust(FOCUS_FAR, duration, "焦点后调")
-}
-
-// IrisOpen 光圈扩大（变亮）
-// 参数：
-//   - duration: 持续时间
-func (c *CameraController) IrisOpen(duration time.Duration) error {
-	return c.adjust(IRIS_OPEN, duration, "光圈扩大")
-}
-
-// IrisClose 光圈缩小（变暗）
-// 参数：
-//   - duration: 持续时间
-func (c *CameraController) IrisClose(duration time.Duration) error {
-	return c.adjust(IRIS_CLOSE, duration, "光圈缩小")
-}
-
-// adjust 内部调整函数，自动处理开始和停止
-func (c *CameraController) adjust(cmd int, duration time.Duration, actionName string) error {
+// adjustCamera 相机调整（带时长）
+func (c *Controller) adjustCamera(cmd int, duration time.Duration, actionName string) error {
 	// 开始调整
-	if err := c.control(cmd, PTZ_START); err != nil {
+	if err := c.controlWithSpeed(cmd, PTZ_START, DefaultSpeed); err != nil {
 		return fmt.Errorf("%s失败: %w", actionName, err)
 	}
 
@@ -290,7 +530,7 @@ func (c *CameraController) adjust(cmd int, duration time.Duration, actionName st
 	time.Sleep(duration)
 
 	// 停止调整
-	if err := c.control(cmd, PTZ_STOP); err != nil {
+	if err := c.controlWithSpeed(cmd, PTZ_STOP, DefaultSpeed); err != nil {
 		return fmt.Errorf("停止%s失败: %w", actionName, err)
 	}
 
@@ -298,85 +538,28 @@ func (c *CameraController) adjust(cmd int, duration time.Duration, actionName st
 	return nil
 }
 
-// ==================== AuxiliaryController 辅助设备控制器 ====================
-
-// AuxiliaryController 辅助设备控制器
-// 封装灯光、雨刷、风扇、加热器等辅助设备控制
-type AuxiliaryController struct {
-	userID  int // 登录句柄
-	channel int // 通道号
-}
-
-// NewAuxiliaryController 创建辅助设备控制器
-func NewAuxiliaryController(userID int, channel int) *AuxiliaryController {
-	return &AuxiliaryController{
-		userID:  userID,
-		channel: channel,
+// startCamera 开始相机调整（手动控制）
+func (c *Controller) startCamera(cmd int, actionName string) error {
+	if err := c.controlWithSpeed(cmd, PTZ_START, DefaultSpeed); err != nil {
+		return fmt.Errorf("开始%s失败: %w", actionName, err)
 	}
+
+	log.Printf("✓ 开始%s（通道%d）", actionName, c.channel)
+	return nil
 }
 
-// LightOn 接通灯光电源
-func (a *AuxiliaryController) LightOn() error {
-	return a.switchDevice(LIGHT_PWRON, true, "灯光")
+// stopCamera 停止相机调整（手动控制）
+func (c *Controller) stopCamera(cmd int, actionName string) error {
+	if err := c.controlWithSpeed(cmd, PTZ_STOP, DefaultSpeed); err != nil {
+		return fmt.Errorf("停止%s失败: %w", actionName, err)
+	}
+
+	log.Printf("✓ 停止%s（通道%d）", actionName, c.channel)
+	return nil
 }
 
-// LightOff 关闭灯光电源
-func (a *AuxiliaryController) LightOff() error {
-	return a.switchDevice(LIGHT_PWRON, false, "灯光")
-}
-
-// WiperOn 接通雨刷
-func (a *AuxiliaryController) WiperOn() error {
-	return a.switchDevice(WIPER_PWRON, true, "雨刷")
-}
-
-// WiperOff 关闭雨刷
-func (a *AuxiliaryController) WiperOff() error {
-	return a.switchDevice(WIPER_PWRON, false, "雨刷")
-}
-
-// FanOn 接通风扇
-func (a *AuxiliaryController) FanOn() error {
-	return a.switchDevice(FAN_PWRON, true, "风扇")
-}
-
-// FanOff 关闭风扇
-func (a *AuxiliaryController) FanOff() error {
-	return a.switchDevice(FAN_PWRON, false, "风扇")
-}
-
-// HeaterOn 接通加热器
-func (a *AuxiliaryController) HeaterOn() error {
-	return a.switchDevice(HEATER_PWRON, true, "加热器")
-}
-
-// HeaterOff 关闭加热器
-func (a *AuxiliaryController) HeaterOff() error {
-	return a.switchDevice(HEATER_PWRON, false, "加热器")
-}
-
-// AuxDevice1On 接通辅助设备1
-func (a *AuxiliaryController) AuxDevice1On() error {
-	return a.switchDevice(AUX_PWRON1, true, "辅助设备1")
-}
-
-// AuxDevice1Off 关闭辅助设备1
-func (a *AuxiliaryController) AuxDevice1Off() error {
-	return a.switchDevice(AUX_PWRON1, false, "辅助设备1")
-}
-
-// AuxDevice2On 接通辅助设备2
-func (a *AuxiliaryController) AuxDevice2On() error {
-	return a.switchDevice(AUX_PWRON2, true, "辅助设备2")
-}
-
-// AuxDevice2Off 关闭辅助设备2
-func (a *AuxiliaryController) AuxDevice2Off() error {
-	return a.switchDevice(AUX_PWRON2, false, "辅助设备2")
-}
-
-// switchDevice 内部设备开关函数
-func (a *AuxiliaryController) switchDevice(cmd int, turnOn bool, deviceName string) error {
+// switchDevice 辅助设备开关
+func (c *Controller) switchDevice(cmd int, turnOn bool, deviceName string) error {
 	action := PTZ_START // 0=开启
 	actionName := "开启"
 	if !turnOn {
@@ -384,85 +567,39 @@ func (a *AuxiliaryController) switchDevice(cmd int, turnOn bool, deviceName stri
 		actionName = "关闭"
 	}
 
-	if err := a.control(cmd, action); err != nil {
+	if err := c.controlWithSpeed(cmd, action, DefaultSpeed); err != nil {
 		return fmt.Errorf("%s%s失败: %w", actionName, deviceName, err)
 	}
 
-	log.Printf("✓ %s%s（通道%d）", actionName, deviceName, a.channel)
+	log.Printf("✓ %s%s（通道%d）", actionName, deviceName, c.channel)
 	return nil
 }
 
-// ==================== 通用底层控制函数 ====================
-
-// controlWithSpeed 带速度的云台控制（MovementController 使用）
-// 根据官方文档，速度范围是 1-7
-func (m *MovementController) controlWithSpeed(cmd, stop, speed int) error {
-	if m.userID < 0 {
-		return fmt.Errorf("无效的登录ID：%d", m.userID)
+// controlWithSpeed 带速度的云台控制（底层调用）
+func (c *Controller) controlWithSpeed(cmd, stop, speed int) error {
+	if c.userID < 0 {
+		return fmt.Errorf("无效的登录ID：%d", c.userID)
 	}
 
 	ret := C.NET_DVR_PTZControlWithSpeed_Other(
-		C.LONG(m.userID),
-		C.LONG(m.channel),
+		C.LONG(c.userID),
+		C.LONG(c.channel),
 		C.DWORD(cmd),
 		C.DWORD(stop),
 		C.DWORD(speed),
 	)
 
 	if ret != C.TRUE {
-		errCode := int(C.NET_DVR_GetLastError())
-		return fmt.Errorf("云台控制失败 [通道:%d Cmd:%d 错误码:%d]", m.channel, cmd, errCode)
+		return core.NewHKError(fmt.Sprintf("PTZ控制[通道:%d 命令:%d]", c.channel, cmd))
 	}
 
 	return nil
 }
 
 // validateSpeed 验证速度范围
-func (m *MovementController) validateSpeed(speed int) error {
+func (c *Controller) validateSpeed(speed int) error {
 	if speed < MinSpeed || speed > MaxSpeed {
 		return fmt.Errorf("速度超出范围：%d（有效范围：%d-%d）", speed, MinSpeed, MaxSpeed)
 	}
-	return nil
-}
-
-// control 无速度的云台控制（CameraController 和 AuxiliaryController 使用）
-func (c *CameraController) control(cmd, stop int) error {
-	if c.userID < 0 {
-		return fmt.Errorf("无效的登录ID：%d", c.userID)
-	}
-
-	ret := C.NET_DVR_PTZControl_Other(
-		C.LONG(c.userID),
-		C.LONG(c.channel),
-		C.DWORD(cmd),
-		C.DWORD(stop),
-	)
-
-	if ret != C.TRUE {
-		errCode := int(C.NET_DVR_GetLastError())
-		return fmt.Errorf("相机控制失败 [通道:%d Cmd:%d 错误码:%d]", c.channel, cmd, errCode)
-	}
-
-	return nil
-}
-
-// control 无速度的云台控制（AuxiliaryController 使用）
-func (a *AuxiliaryController) control(cmd, stop int) error {
-	if a.userID < 0 {
-		return fmt.Errorf("无效的登录ID：%d", a.userID)
-	}
-
-	ret := C.NET_DVR_PTZControl_Other(
-		C.LONG(a.userID),
-		C.LONG(a.channel),
-		C.DWORD(cmd),
-		C.DWORD(stop),
-	)
-
-	if ret != C.TRUE {
-		errCode := int(C.NET_DVR_GetLastError())
-		return fmt.Errorf("辅助设备控制失败 [通道:%d Cmd:%d 错误码:%d]", a.channel, cmd, errCode)
-	}
-
 	return nil
 }

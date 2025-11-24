@@ -18,6 +18,8 @@ import "C"
 import (
 	"fmt"
 	"log"
+
+	"github.com/samsaralc/hiksdk/core"
 )
 
 // 巡航命令常量（来自官方文档表 5.12）
@@ -50,7 +52,7 @@ const (
 // CruiseManager 巡航控制器
 // 封装了云台巡航的所有操作，提供简化的API
 type CruiseManager struct {
-	userID  int // 登录句柄（NET_DVR_Login_V40 的返回值）
+	userID  int // 登录句柄（NET_DVR_Login_V30 的返回值）
 	channel int // 通道号
 }
 
@@ -265,9 +267,8 @@ func (c *CruiseManager) control(cmd, route, point, input int) error {
 	)
 
 	if ret != C.TRUE {
-		errCode := int(C.NET_DVR_GetLastError())
-		return fmt.Errorf("巡航操作失败 [通道:%d Cmd:%d Route:%d Point:%d Input:%d 错误码:%d]",
-			c.channel, cmd, route, point, input, errCode)
+		return core.NewHKError(fmt.Sprintf("巡航操作[通道:%d 命令:%d 路径:%d 点:%d]",
+			c.channel, cmd, route, point))
 	}
 
 	return nil
