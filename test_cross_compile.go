@@ -32,9 +32,9 @@ func main() {
 	fmt.Println("\n【2】检查CGO配置...")
 	checkCGO()
 
-	// 检查库文件
-	fmt.Println("\n【3】检查库文件...")
-	checkLibraries()
+	// 检查系统库配置
+	fmt.Println("\n【3】检查系统库配置...")
+	checkSystemLibraries()
 
 	// 测试语法检查
 	fmt.Println("\n【4】运行代码检查...")
@@ -105,34 +105,32 @@ func checkCGO() {
 	}
 }
 
-// 检查库文件
-func checkLibraries() {
-	var libDir string
+// 检查系统库配置
+func checkSystemLibraries() {
 	if runtime.GOOS == "windows" {
-		libDir = "lib/Windows"
-	} else {
-		libDir = "lib/Linux"
-	}
-
-	if info, err := os.Stat(libDir); err == nil && info.IsDir() {
-		fmt.Printf("✓ 库文件目录存在: %s\n", libDir)
-
-		// 列出库文件
-		entries, _ := os.ReadDir(libDir)
-		count := 0
-		for _, e := range entries {
-			if !e.IsDir() {
-				if strings.HasSuffix(e.Name(), ".dll") ||
-					strings.HasSuffix(e.Name(), ".so") ||
-					strings.HasSuffix(e.Name(), ".lib") {
-					count++
-				}
-			}
+		// Windows: 检查 PATH 环境变量
+		path := os.Getenv("PATH")
+		if strings.Contains(strings.ToLower(path), "hiksdk") ||
+			strings.Contains(strings.ToLower(path), "hcnetsdk") {
+			fmt.Println("✓ 检测到 PATH 中可能包含海康 SDK 路径")
+		} else {
+			fmt.Println("⚠ PATH 中未检测到海康 SDK 路径")
+			fmt.Println("  请确保已从海康官网下载 SDK 并配置到系统 PATH")
 		}
-		fmt.Printf("  找到 %d 个库文件\n", count)
 	} else {
-		fmt.Printf("✗ 库文件目录不存在: %s\n", libDir)
+		// Linux: 检查 LD_LIBRARY_PATH
+		ldPath := os.Getenv("LD_LIBRARY_PATH")
+		if strings.Contains(strings.ToLower(ldPath), "hiksdk") ||
+			strings.Contains(strings.ToLower(ldPath), "hcnetsdk") {
+			fmt.Println("✓ 检测到 LD_LIBRARY_PATH 中可能包含海康 SDK 路径")
+		} else {
+			fmt.Println("⚠ LD_LIBRARY_PATH 中未检测到海康 SDK 路径")
+			fmt.Println("  请确保已从海康官网下载 SDK 并配置到 LD_LIBRARY_PATH")
+		}
 	}
+
+	fmt.Println("\n  提示: 请从海康威视开放平台下载 SDK:")
+	fmt.Println("  https://open.hikvision.com/download/5cda567cf47ae80dd41a54b3?type=10")
 }
 
 // 运行代码检查

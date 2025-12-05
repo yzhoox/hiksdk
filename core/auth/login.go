@@ -4,11 +4,11 @@ package auth
 #cgo CFLAGS: -I../../include
 #cgo CFLAGS: -I..
 
-// Linux 平台的链接配置
-#cgo linux LDFLAGS: -L../../lib/Linux -lhcnetsdk -lhpr -lHCCore
+// Linux 平台的链接配置（需要在系统 LD_LIBRARY_PATH 中配置海康 SDK 库路径）
+#cgo linux LDFLAGS: -lhcnetsdk -lhpr -lHCCore
 
-// Windows 平台的链接配置
-#cgo windows LDFLAGS: -L../../lib/Windows -lHCNetSDK -lHCCore
+// Windows 平台的链接配置（需要在系统 PATH 中配置海康 SDK 库路径）
+#cgo windows LDFLAGS: -lHCNetSDK -lHCCore
 
 #include <stdio.h>
 #include <stdlib.h>

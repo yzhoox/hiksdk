@@ -138,90 +138,132 @@ gcc --version
 go get github.com/samsaralc/hiksdk
 ```
 
-### 步骤 2：配置动态库路径（⭐ 一次性配置，永久生效）
+### 步骤 2：下载并配置海康 SDK 动态库
 
-由于使用了 CGO，需要让系统能找到海康 SDK 的动态库。**配置一次后，之后就完全开箱即用！**
+由于使用了 CGO，需要让系统能找到海康 SDK 的动态库。**请从海康官网下载 SDK 并配置到系统路径。**
 
-#### Windows
+#### 2.1 下载海康 SDK
 
-**复制粘贴以下命令到 PowerShell（管理员权限）：**
+1. **访问海康威视开放平台下载页面**：
+   - 下载地址：https://open.hikvision.com/download/5cda567cf47ae80dd41a54b3?type=10
+   - 需要注册/登录海康开放平台账号
+
+2. **选择对应平台的 SDK**：
+   - **Windows**：下载 Windows 版本的 SDK（包含 `.dll` 文件）
+   - **Linux**：下载 Linux 版本的 SDK（包含 `.so` 文件）
+
+3. **解压 SDK 包**：
+   - 解压到本地目录，例如：
+     - Windows: `C:\HikSDK\`
+     - Linux: `~/HikSDK/` 或 `/opt/HikSDK/`
+
+#### 2.2 配置系统路径
+
+##### Windows
+
+**方式一：通过系统环境变量配置（推荐）**
+
+1. 找到 SDK 解压后的库文件目录（通常包含 `HCNetSDK.dll` 等文件）
+2. 复制该目录路径，例如：`C:\HikSDK\lib`
+3. 添加到系统 PATH：
+   - 右键"此电脑" → "属性" → "高级系统设置" → "环境变量"
+   - 在"系统变量"中找到 `Path`，点击"编辑"
+   - 点击"新建"，粘贴库文件目录路径
+   - 点击"确定"保存
+4. **重新打开终端**使配置生效
+
+**方式二：通过 PowerShell 配置（管理员权限）**
 
 ```powershell
-# 自动查找 HikSDK 并安全写入 PATH（仅用户级，不重复）
+# 替换为你的 SDK 库文件实际路径
+$sdkLibPath = "C:\HikSDK\lib"
 
-# 1) 获取 GOPATH（没有则 fallback）
-$goPath = if ($env:GOPATH) { $env:GOPATH } else { "$env:USERPROFILE\go" }
+# 读取当前用户 PATH
+$currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
 
-# 2) 查找 SDK 目录
-$hiksdkPath = Get-ChildItem -Path "$goPath\pkg\mod\github.com\samsaralc" `
-    -Filter "hiksdk@*" -Directory -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
-
-if ($hiksdkPath) {
-    $libPath = Join-Path $hiksdkPath.FullName "lib\Windows"
-
-    # 3) 读取当前用户 PATH（比直接用 $env:PATH 更安全）
-    $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
-
-    if ($currentPath -notlike "*$libPath*") {
-        $newPath = "$currentPath;$libPath"
-        [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-
-        Write-Host "✓ 已添加到 PATH（无重复）" -ForegroundColor Green
-        Write-Host "➤ 路径: $libPath" -ForegroundColor Cyan
-        Write-Host "⚠ 请重新打开终端后生效" -ForegroundColor Yellow
-    } else {
-        Write-Host "✔ 已存在，无需再次添加" -ForegroundColor Green
-        Write-Host "➤ 路径: $libPath" -ForegroundColor Cyan
-    }
+# 检查是否已存在
+if ($currentPath -notlike "*$sdkLibPath*") {
+    $newPath = "$currentPath;$sdkLibPath"
+    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+    Write-Host "✓ 已添加到 PATH: $sdkLibPath" -ForegroundColor Green
+    Write-Host "⚠ 请重新打开终端后生效" -ForegroundColor Yellow
 } else {
-    Write-Host "✗ 未找到 hiksdk，请先执行:" -ForegroundColor Red
-    Write-Host "    go get github.com/samsaralc/hiksdk" -ForegroundColor Yellow
+    Write-Host "✔ 路径已存在: $sdkLibPath" -ForegroundColor Green
 }
-
 ```
 
-**说明：**
-- `hiksdk@*` 中的 `@*` 是通配符，匹配任何版本（如 `hiksdk@v1.0.0`）
-- 配置后无论升级到哪个版本都有效
+##### Linux / macOS
 
-#### Linux / macOS
+**方式一：通过 LD_LIBRARY_PATH 配置（推荐）**
 
-**复制粘贴以下命令到终端：**
+1. 找到 SDK 解压后的库文件目录（通常包含 `libhcnetsdk.so` 等文件）
+2. 编辑 `~/.bashrc`（或 `~/.zshrc`）：
 
 ```bash
-# 自动查找 SDK 库路径并永久添加到 ~/.bashrc
+# 替换为你的 SDK 库文件实际路径
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/HikSDK/lib
+```
+
+3. 使配置生效：
+
+```bash
+source ~/.bashrc  # 或 source ~/.zshrc
+```
+
+**方式二：复制到系统库目录（需要 root 权限）**
+
+```bash
+# 将 SDK 库文件复制到系统库目录
+sudo cp /path/to/HikSDK/lib/*.so /usr/local/lib/
+
+# 更新动态链接库缓存
+sudo ldconfig
+```
+
+**方式三：通过脚本自动配置**
+
+```bash
 #!/bin/bash
 
-set -e
+# 替换为你的 SDK 库文件实际路径
+HIKSDK_LIB="/opt/HikSDK/lib"
 
-# 自动查找 hiksdk 库目录
-HIKSDK_LIB=$(find $GOPATH/pkg/mod/github.com/samsaralc -maxdepth 3 -name "hiksdk@*" -type d 2>/dev/null | head -1)/lib/Linux
-
+# 检查目录是否存在
 if [ ! -d "$HIKSDK_LIB" ]; then
-    echo "✗ 未找到 hiksdk 库，请先执行:"
-    echo "  go get github.com/samsaralc/hiksdk"
+    echo "✗ 目录不存在: $HIKSDK_LIB"
+    echo "  请先下载并解压海康 SDK"
     exit 1
 fi
 
-# 检查是否已存在
-if grep -q "$HIKSDK_LIB" ~/.bashrc; then
-    echo "✓ 已存在，无需重复添加"
-else
-    echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:$HIKSDK_LIB" >> ~/.bashrc
-    echo "✓ 已写入 ~/.bashrc"
+# 备份配置文件
+SHELL_RC=~/.bashrc
+if [ -f ~/.zshrc ]; then
+    SHELL_RC=~/.zshrc
 fi
 
-# 立即生效
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HIKSDK_LIB
-echo "✓ 已生效: $HIKSDK_LIB"
+BACKUP_FILE="${SHELL_RC}.bak-hiksdk"
+if [ ! -f "$BACKUP_FILE" ]; then
+    cp "$SHELL_RC" "$BACKUP_FILE"
+    echo "✓ 已备份配置文件"
+fi
 
+# 删除旧配置
+sed -i '/HikSDK\|hiksdk/d' "$SHELL_RC"
+
+# 添加新配置
+echo "export LD_LIBRARY_PATH=\$LD_LIBRARY_PATH:$HIKSDK_LIB" >> "$SHELL_RC"
+echo "✓ 已更新配置文件: $SHELL_RC"
+
+# 立即生效
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$HIKSDK_LIB"
+echo "✓ 已即时生效: $HIKSDK_LIB"
+echo "⚠ 请重新打开终端或执行: source $SHELL_RC"
 ```
 
-**说明：**
-- `hiksdk@*` 中的 `@*` 是版本号通配符（如 `hiksdk@v1.0.0`）
-- 如果使用 zsh，将 `~/.bashrc` 改为 `~/.zshrc`
+> 💡 **提示**：
+> - SDK 库文件路径请根据实际解压位置修改
+> - 配置完成后需要**重新打开终端**才能生效
+> - 如果使用 zsh，将 `~/.bashrc` 改为 `~/.zshrc`
 
 ### 步骤 3：验证配置 ✅
 
@@ -239,7 +281,7 @@ go test -v -run TestLoginMethods
 
 **如果能看到测试通过，配置成功！** 🎉
 
-之后在任何项目中使用 SDK 都无需再配置，**真正的开箱即用！**
+> 💡 **说明**：SDK 库路径配置是一次性的，配置完成后，之后在任何项目中使用本 Go SDK 都无需再次配置。
 
 ## 🔧 系统要求
 
@@ -529,7 +571,6 @@ hiksdk/
 │   └── 错误代码及说明.md     # 错误代码参考
 │
 ├── include/                   # C SDK 头文件
-├── lib/                       # 动态链接库（Windows/Linux）
 ├── go.mod                     # Go模块定义
 ├── LICENSE                    # MIT许可证
 └── README.md                 # 本文件
@@ -1010,7 +1051,7 @@ dev := core.NewHKDevice(core.DeviceInfo{
 })
 ```
 
-**只需要一次性配置动态库路径**（见上方"安装"部分），之后就完全开箱即用了。
+**需要先完成 SDK 库路径配置**（见上方"安装配置"部分），从海康官网下载 SDK 并配置到系统路径后即可使用。
 
 **HIK_IP 等环境变量仅用于：**
 - 运行本项目自带的测试用例 `go test ./pkg/...`
@@ -1044,15 +1085,7 @@ dev := core.NewHKDevice(core.DeviceInfo{
 - 数字视频录像机（DVR）
 - 混合型 NVR/DVR
 
-### 6. lib 目录下的文件很大，可以删除吗？
-
-**不可以！** 这些是海康 SDK 的核心库文件，SDK 运行时必需。
-
-- Windows: 需要 `lib/Windows/` 下的所有 DLL 文件
-- Linux: 需要 `lib/Linux/` 下的所有 SO 文件
-- 所有文件已被 Git 托管，克隆时会自动下载
-
-### 7. 如何处理视频数据？
+### 6. 如何处理视频数据？
 
 SDK 提供 PS 流数据，你需要：
 1. 解析 PS 流
@@ -1060,7 +1093,7 @@ SDK 提供 PS 流数据，你需要：
 3. 使用解码库（如 FFmpeg）解码
 4. 渲染显示
 
-### 8. 为什么连接超时？
+### 7. 为什么连接超时？
 
 检查：
 - 设备 IP 地址是否正确
@@ -1192,8 +1225,10 @@ ctrl.StopLeft()
 ## 依赖
 
 本项目依赖海康威视官方 SDK 动态链接库：
-- Windows: `HCNetSDK.dll` 及相关 DLL（位于 `lib/Windows/`）
-- Linux: `libhcnetsdk.so` 及相关 SO（位于 `lib/Linux/`）
+- Windows: `HCNetSDK.dll`、`HCCore.dll` 及相关依赖库
+- Linux: `libhcnetsdk.so`、`libhpr.so`、`libHCCore.so` 及相关依赖库
+
+**获取方式**：从[海康威视开放平台](https://open.hikvision.com/download/5cda567cf47ae80dd41a54b3?type=10)下载对应平台的 SDK，并按照上方"安装配置"部分的说明配置到系统路径
 
 ## 许可证
 
